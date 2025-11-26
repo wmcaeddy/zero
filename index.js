@@ -286,6 +286,17 @@ app.delete('/api/scim/users/:id', async (req, res) => {
   }
 });
 
+// Helper function to XML-escape strings for SOAP
+function xmlEscape(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 // BSIDCA SOAP: Provision Token (ProvisionUsers method)
 app.post('/api/tokens', async (req, res) => {
   const { userName, tokenType = 'Software', description = '', organization } = req.body;
@@ -303,8 +314,8 @@ app.post('/api/tokens', async (req, res) => {
           'AssignToken': 'Assign an existing token to a user',
           'GetMobilePASSProvisioningActivationCode': 'Get activation code for MobilePASS'
         },
-        validTokenClasses: ['Software', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken'],
-        note: 'Use "Software" for MobilePASS tokens, not "MobilePASS"',
+        validTokenClasses: ['Software', 'Custom', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken', 'MobilePASS', 'GoogleAuthenticator'],
+        note: 'MobilePASS and Software are both valid for software tokens. MobilePASS is specifically for the MobilePASS+ app.',
         reference: 'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html'
       },
       debug: {
@@ -328,7 +339,13 @@ app.post('/api/tokens', async (req, res) => {
     });
   }
 
-  // Build SOAP envelope for ProvisionUsers with correct structure
+  // XML-escape all parameters to prevent issues with special characters like @ in email addresses
+  const escapedUserName = xmlEscape(userName);
+  const escapedTokenType = xmlEscape(tokenType);
+  const escapedDescription = xmlEscape(description);
+  const escapedOrg = xmlEscape(org);
+
+  // Build SOAP envelope for ProvisionUsers with correct structure and proper XML escaping
   const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -336,11 +353,11 @@ app.post('/api/tokens', async (req, res) => {
   <soap:Body>
     <ProvisionUsers xmlns="http://www.cryptocard.com/blackshield/">
       <userNames>
-        <string>${userName}</string>
+        <string>${escapedUserName}</string>
       </userNames>
-      <tokenClass>${tokenType}</tokenClass>
-      <description>${description}</description>
-      <organization>${org}</organization>
+      <tokenClass>${escapedTokenType}</tokenClass>
+      <description>${escapedDescription}</description>
+      <organization>${escapedOrg}</organization>
     </ProvisionUsers>
   </soap:Body>
 </soap:Envelope>`;
@@ -499,13 +516,14 @@ app.get('/api/tokens/info', (req, res) => {
     scimApiSupports: ['Create User', 'Read User', 'Update User', 'Delete User'],
     bsidcaApiSupports: ['ProvisionUsers', 'AssignToken', 'ActivateToken', 'SuspendToken', 'GetMobilePASSProvisioningActivationCode'],
     validTokenClasses: {
-      list: ['Software', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken'],
-      note: 'Use "Software" for MobilePASS tokens, not "MobilePASS"'
+      list: ['Software', 'Custom', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken', 'MobilePASS', 'GoogleAuthenticator'],
+      note: 'MobilePASS is for MobilePASS+ app, Software is for generic TOTP tokens, GoogleAuthenticator for Google Authenticator app'
     },
     workflow: {
       step1: 'Create user via SCIM API (working)',
-      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials, use tokenType="Software" for MobilePASS)',
-      step3: 'User receives activation email or you can get activation code via GetMobilePASSProvisioningActivationCode'
+      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials)',
+      step3: 'User receives activation email or you can get activation code via GetMobilePASSProvisioningActivationCode',
+      important: 'User MUST exist in the organization before provisioning tokens. Empty ProvisionUsersResponse means user does not exist.'
     },
     requiredEnvVars: {
       forScim: ['SCIM_API_Endpoint_Url', 'API_KEY'],
