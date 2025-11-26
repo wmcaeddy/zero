@@ -288,7 +288,7 @@ app.delete('/api/scim/users/:id', async (req, res) => {
 
 // BSIDCA SOAP: Provision Token (ProvisionUsers method)
 app.post('/api/tokens', async (req, res) => {
-  const { userName, tokenType = 'MobilePASS', description = '', organization } = req.body;
+  const { userName, tokenType = 'Software', description = '', organization } = req.body;
   const org = organization || ORGANIZATION;
 
   if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
@@ -303,6 +303,8 @@ app.post('/api/tokens', async (req, res) => {
           'AssignToken': 'Assign an existing token to a user',
           'GetMobilePASSProvisioningActivationCode': 'Get activation code for MobilePASS'
         },
+        validTokenClasses: ['Software', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken'],
+        note: 'Use "Software" for MobilePASS tokens, not "MobilePASS"',
         reference: 'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html'
       },
       debug: {
@@ -365,9 +367,28 @@ app.post('/api/tokens', async (req, res) => {
 
     // Determine success based on response
     const results = parsed.parsed || [];
-    const allSuccess = results.every(r =>
+    const allSuccess = results.length > 0 && results.every(r =>
       r === 'ProvisionSuccess' || r === 'EmailSent' || r === 'SMSSent'
     );
+
+    // Check if response was empty
+    if (results.length === 0) {
+      return res.json({
+        success: false,
+        status: response.status,
+        authenticated: authResult.cached ? 'cached_session' : 'new_session',
+        error: 'Empty provisioning response - this usually means the user does not exist in the organization',
+        provisioningResults: results,
+        data: parsed,
+        recommendation: 'Please ensure the user exists in the STA organization before provisioning a token. You can create users via the SCIM API endpoint.',
+        debug: {
+          method: 'POST (SOAP)',
+          url: BSIDCA_URL,
+          soapAction: 'ProvisionUsers',
+          body: { userName, tokenType, description, organization: org }
+        }
+      });
+    }
 
     res.json({
       success: response.ok && allSuccess,
@@ -477,14 +498,18 @@ app.get('/api/tokens/info', (req, res) => {
     message: 'Token provisioning in STA requires the BSIDCA SOAP API',
     scimApiSupports: ['Create User', 'Read User', 'Update User', 'Delete User'],
     bsidcaApiSupports: ['ProvisionUsers', 'AssignToken', 'ActivateToken', 'SuspendToken', 'GetMobilePASSProvisioningActivationCode'],
+    validTokenClasses: {
+      list: ['Software', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken'],
+      note: 'Use "Software" for MobilePASS tokens, not "MobilePASS"'
+    },
     workflow: {
       step1: 'Create user via SCIM API (working)',
-      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials)',
+      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials, use tokenType="Software" for MobilePASS)',
       step3: 'User receives activation email or you can get activation code via GetMobilePASSProvisioningActivationCode'
     },
     requiredEnvVars: {
       forScim: ['SCIM_API_Endpoint_Url', 'API_KEY'],
-      forBsidca: ['BSIDCA_User', 'BSIDCA_Password', 'ORGANIZATION']
+      forBsidca: ['BSIDCA_Email', 'BSIDCA_Password', 'ORGANIZATION']
     },
     documentation: [
       'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html',
