@@ -9,7 +9,8 @@ const SCIM_API_URL = process.env.SCIM_API_Endpoint_Url || '';
 const API_KEY = process.env.API_KEY || '';
 // BSIDCA SOAP endpoint for token provisioning
 const BSIDCA_URL = process.env.BSIDCA_Endpoint_Url || 'https://cloud.eu.safenetid.com/bsidca/BSIDCA.asmx';
-const BSIDCA_USER = process.env.BSIDCA_User || '';
+const BSIDCA_EMAIL = process.env.BSIDCA_Email || '';  // Operator email for authentication
+const BSIDCA_USER = process.env.BSIDCA_User || '';    // Operator username
 const BSIDCA_PASSWORD = process.env.BSIDCA_Password || '';
 const ORGANIZATION = process.env.ORGANIZATION || '';
 
@@ -94,8 +95,11 @@ async function connectBSIDCA() {
     return { success: true, cookie: bsidcaSessionCookie, cached: true };
   }
 
-  if (!BSIDCA_USER || !BSIDCA_PASSWORD) {
-    return { success: false, error: 'BSIDCA credentials not configured' };
+  // Use BSIDCA_EMAIL for operator email, fall back to BSIDCA_USER if not set
+  const operatorEmail = BSIDCA_EMAIL || BSIDCA_USER;
+
+  if (!operatorEmail || !BSIDCA_PASSWORD) {
+    return { success: false, error: 'BSIDCA credentials not configured (need BSIDCA_Email and BSIDCA_Password)' };
   }
 
   // Build SOAP envelope for Connect
@@ -105,7 +109,7 @@ async function connectBSIDCA() {
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <Connect xmlns="http://www.cryptocard.com/blackshield/">
-      <OperatorEmail>${BSIDCA_USER}</OperatorEmail>
+      <OperatorEmail>${operatorEmail}</OperatorEmail>
       <OTP>${BSIDCA_PASSWORD}</OTP>
     </Connect>
   </soap:Body>
@@ -167,11 +171,17 @@ app.get('/api/status', (req, res) => {
     timestamp: new Date().toISOString(),
     configured: {
       scim: !!(SCIM_API_URL && API_KEY),
-      bsidca: !!(BSIDCA_USER && BSIDCA_PASSWORD && ORGANIZATION)
+      bsidca: !!((BSIDCA_EMAIL || BSIDCA_USER) && BSIDCA_PASSWORD && ORGANIZATION)
     },
     endpoints: {
       scim: SCIM_API_URL || 'NOT SET',
       bsidca: BSIDCA_URL
+    },
+    credentials: {
+      bsidca_email: BSIDCA_EMAIL ? 'SET' : 'NOT SET',
+      bsidca_user: BSIDCA_USER ? 'SET' : 'NOT SET',
+      bsidca_password: BSIDCA_PASSWORD ? 'SET' : 'NOT SET',
+      organization: ORGANIZATION ? 'SET' : 'NOT SET'
     },
     note: 'Token provisioning requires BSIDCA SOAP API credentials (operator login)'
   });
@@ -281,11 +291,11 @@ app.post('/api/tokens', async (req, res) => {
   const { userName, tokenType = 'MobilePASS', description = '', organization } = req.body;
   const org = organization || ORGANIZATION;
 
-  if (!BSIDCA_USER || !BSIDCA_PASSWORD) {
+  if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
     return res.json({
       success: false,
       error: 'BSIDCA credentials not configured',
-      note: 'Token provisioning requires BSIDCA SOAP API. Set BSIDCA_User, BSIDCA_Password, and ORGANIZATION environment variables.',
+      note: 'Token provisioning requires BSIDCA SOAP API. Set BSIDCA_Email, BSIDCA_Password, and ORGANIZATION environment variables.',
       documentation: {
         message: 'The STA REST API does not support token provisioning. You must use the BSIDCA SOAP API.',
         endpoints: {
@@ -382,7 +392,7 @@ app.post('/api/tokens/activation-code', async (req, res) => {
   const { userName, taskID, organization } = req.body;
   const org = organization || ORGANIZATION;
 
-  if (!BSIDCA_USER || !BSIDCA_PASSWORD) {
+  if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
     return res.json({
       success: false,
       error: 'BSIDCA credentials not configured'
@@ -499,5 +509,8 @@ const server = app.listen(PORT, () => {
   console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
   console.log(`BSIDCA: ${BSIDCA_URL}`);
   console.log(`API Key: ${API_KEY ? 'SET' : 'NOT SET'}`);
-  console.log(`BSIDCA Auth: ${BSIDCA_USER ? 'SET' : 'NOT SET'}`);
+  console.log(`BSIDCA Email: ${BSIDCA_EMAIL ? 'SET' : 'NOT SET'}`);
+  console.log(`BSIDCA User: ${BSIDCA_USER ? 'SET' : 'NOT SET'}`);
+  console.log(`BSIDCA Password: ${BSIDCA_PASSWORD ? 'SET' : 'NOT SET'}`);
+  console.log(`Organization: ${ORGANIZATION ? 'SET' : 'NOT SET'}`);
 });
