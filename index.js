@@ -46,7 +46,7 @@ app.get('/api/scim/users', async (req, res) => {
     const response = await fetch(`${SCIM_API_URL}Users`, {
       headers: {
         'Accept': 'application/scim+json',
-        'X-API-Key': API_KEY
+        'Authorization': `Bearer ${API_KEY}`
       }
     });
     const data = await safeParseResponse(response);
@@ -57,7 +57,7 @@ app.get('/api/scim/users', async (req, res) => {
       debug: {
         method: 'GET',
         url: `${SCIM_API_URL}Users`,
-        headers: { 'Accept': 'application/scim+json', 'apikey': '***' }
+        headers: { 'Accept': 'application/scim+json', 'Authorization': 'Bearer ***' }
       }
     });
   } catch (err) {
@@ -86,7 +86,7 @@ app.post('/api/scim/users', async (req, res) => {
       headers: {
         'Content-Type': 'application/scim+json',
         'Accept': 'application/scim+json',
-        'X-API-Key': API_KEY
+        'Authorization': `Bearer ${API_KEY}`
       },
       body: JSON.stringify(payload)
     });
@@ -98,7 +98,8 @@ app.post('/api/scim/users', async (req, res) => {
       debug: {
         method: 'POST',
         url: `${SCIM_API_URL}Users`,
-        body: payload
+        body: payload,
+        headers: { 'Authorization': 'Bearer ***' }
       }
     });
   } catch (err) {
@@ -117,7 +118,7 @@ app.delete('/api/scim/users/:id', async (req, res) => {
       method: 'DELETE',
       headers: {
         'Accept': 'application/scim+json',
-        'X-API-Key': API_KEY
+        'Authorization': `Bearer ${API_KEY}`
       }
     });
     const data = await safeParseResponse(response);
@@ -152,7 +153,7 @@ app.post('/api/tokens', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'X-API-Key': API_KEY
+        'Authorization': `Bearer ${API_KEY}`
       },
       body: JSON.stringify(payload)
     });
@@ -165,7 +166,7 @@ app.post('/api/tokens', async (req, res) => {
         method: 'POST',
         url: url,
         body: payload,
-        responseHeaders: Object.fromEntries(response.headers.entries())
+        headers: { 'Authorization': 'Bearer ***' }
       }
     });
   } catch (err) {
@@ -183,7 +184,7 @@ app.get('/api/tokens', async (req, res) => {
     const response = await fetch(`${REST_API_URL}tokens`, {
       headers: {
         'Accept': 'application/json',
-        'X-API-Key': API_KEY
+        'Authorization': `Bearer ${API_KEY}`
       }
     });
     const data = await safeParseResponse(response);
