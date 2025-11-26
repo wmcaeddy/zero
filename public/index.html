@@ -19,6 +19,7 @@
     .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px; }
     .badge-scim { background: #e3f2fd; color: #1565c0; }
     .badge-rest { background: #e8f5e9; color: #2e7d32; }
+    .badge-bsidca { background: #fff3e0; color: #e65100; }
     .form-group { margin-bottom: 12px; }
     label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; }
     input, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
@@ -79,25 +80,24 @@
       </div>
 
       <div class="card">
-        <h2>Provision Token <span class="badge badge-rest">REST</span></h2>
+        <h2>Provision Token <span class="badge badge-bsidca">BSIDCA</span></h2>
         <form id="provisionTokenForm">
           <div class="form-group">
-            <label>User ID</label>
-            <input type="text" id="userId" required placeholder="User ID from SCIM">
+            <label>Username / Email</label>
+            <input type="text" id="tokenUserName" required placeholder="user@example.com">
           </div>
           <div class="form-group">
             <label>Token Type</label>
             <select id="tokenType">
               <option value="MobilePASS">MobilePASS</option>
-              <option value="MobilePASS+">MobilePASS+</option>
+              <option value="Software">Software (TOTP)</option>
+              <option value="SMS">SMS</option>
+              <option value="GoogleAuthenticator">Google Authenticator</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Delivery Method</label>
-            <select id="deliveryMethod">
-              <option value="email">Email</option>
-              <option value="sms">SMS</option>
-            </select>
+            <label>Description (optional)</label>
+            <input type="text" id="tokenDescription" placeholder="Token description">
           </div>
           <button type="submit">Provision Token</button>
         </form>
@@ -156,10 +156,10 @@
               <div class="user-item">
                 <div class="user-info">
                   <div class="user-name">${u.name?.givenName || ''} ${u.name?.familyName || ''}</div>
-                  <div class="user-id">${u.id}</div>
+                  <div class="user-id">${u.userName || u.id}</div>
                 </div>
                 <div class="user-actions">
-                  <button onclick="selectUser('${u.id}')">Select</button>
+                  <button onclick="selectUser('${u.userName || u.id}')">Select</button>
                   <button class="danger" onclick="deleteUser('${u.id}')">Delete</button>
                 </div>
               </div>
@@ -173,9 +173,9 @@
       }
     }
 
-    function selectUser(id) {
-      document.getElementById('userId').value = id;
-      alert('User ID copied to token form');
+    function selectUser(userName) {
+      document.getElementById('tokenUserName').value = userName;
+      alert('Username copied to token form');
     }
 
     async function deleteUser(id) {
@@ -226,15 +226,18 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId: document.getElementById('userId').value,
+            userName: document.getElementById('tokenUserName').value,
             tokenType: document.getElementById('tokenType').value,
-            deliveryMethod: document.getElementById('deliveryMethod').value
+            description: document.getElementById('tokenDescription').value
           })
         });
         const data = await res.json();
         log(data);
         if (data.success) {
-          alert('Token provisioned!');
+          const results = data.provisioningResults || [];
+          alert('Token provisioned! Results: ' + results.join(', '));
+        } else {
+          alert('Provisioning failed: ' + (data.error || 'See debug output'));
         }
       } catch (e) {
         alert('Error: ' + e.message);
