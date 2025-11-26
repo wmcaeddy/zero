@@ -4,6 +4,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Password protection
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+
 // Environment variables for STA API
 const SCIM_API_URL = process.env.SCIM_API_Endpoint_Url || '';
 const API_KEY = process.env.API_KEY || '';
@@ -20,6 +23,41 @@ let bsidcaSessionExpiry = null;
 
 // Middleware
 app.use(express.json());
+
+// Password protection middleware
+const authMiddleware = (req, res, next) => {
+  // Skip auth if no password is set
+  if (!APP_PASSWORD) {
+    return next();
+  }
+
+  // Allow health check without auth
+  if (req.path === '/health') {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="STA API Demo"');
+    return res.status(401).send('Authentication required');
+  }
+
+  const credentials = Buffer.from(authHeader.split(' ')[1], 'base64').toString();
+  const [username, password] = credentials.split(':');
+
+  // Accept any username, just check the password
+  if (password === APP_PASSWORD) {
+    return next();
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="STA API Demo"');
+  return res.status(401).send('Invalid credentials');
+};
+
+// Apply auth middleware to all routes
+app.use(authMiddleware);
+
 app.use(express.static('public'));
 
 // Helper to safely parse JSON response
