@@ -5,9 +5,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Environment variables for STA API
-const REST_API_URL = process.env.REST_API_Endpoint_Url || '';
 const SCIM_API_URL = process.env.SCIM_API_Endpoint_Url || '';
 const API_KEY = process.env.API_KEY || '';
+// BSIDCA SOAP endpoint for token provisioning
+const BSIDCA_URL = process.env.BSIDCA_Endpoint_Url || 'https://cloud.eu.safenetid.com/bsidca/BSIDCA.asmx';
+const BSIDCA_USER = process.env.BSIDCA_User || '';
+const BSIDCA_PASSWORD = process.env.BSIDCA_Password || '';
+const ORGANIZATION = process.env.ORGANIZATION || '';
 
 // Middleware
 app.use(express.json());
@@ -28,18 +32,22 @@ app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    configured: !!(REST_API_URL && SCIM_API_URL && API_KEY),
+    configured: {
+      scim: !!(SCIM_API_URL && API_KEY),
+      bsidca: !!(BSIDCA_USER && BSIDCA_PASSWORD && ORGANIZATION)
+    },
     endpoints: {
-      rest: REST_API_URL || 'NOT SET',
-      scim: SCIM_API_URL || 'NOT SET'
-    }
+      scim: SCIM_API_URL || 'NOT SET',
+      bsidca: BSIDCA_URL
+    },
+    note: 'Token provisioning requires BSIDCA SOAP API credentials (operator login)'
   });
 });
 
 // SCIM: List Users
 app.get('/api/scim/users', async (req, res) => {
   if (!SCIM_API_URL || !API_KEY) {
-    return res.status(500).json({ error: 'API not configured' });
+    return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
   try {
@@ -68,7 +76,7 @@ app.get('/api/scim/users', async (req, res) => {
 // SCIM: Create User
 app.post('/api/scim/users', async (req, res) => {
   if (!SCIM_API_URL || !API_KEY) {
-    return res.status(500).json({ error: 'API not configured' });
+    return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
   const { userName, givenName, familyName, email } = req.body;
@@ -98,8 +106,7 @@ app.post('/api/scim/users', async (req, res) => {
       debug: {
         method: 'POST',
         url: `${SCIM_API_URL}Users`,
-        body: payload,
-        headers: { 'Authorization': 'Bearer ***' }
+        body: payload
       }
     });
   } catch (err) {
@@ -110,7 +117,7 @@ app.post('/api/scim/users', async (req, res) => {
 // SCIM: Delete User
 app.delete('/api/scim/users/:id', async (req, res) => {
   if (!SCIM_API_URL || !API_KEY) {
-    return res.status(500).json({ error: 'API not configured' });
+    return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
   try {
@@ -136,70 +143,97 @@ app.delete('/api/scim/users/:id', async (req, res) => {
   }
 });
 
-// REST: Provision Token
+// BSIDCA SOAP: Provision Token (ProvisionUsers method)
 app.post('/api/tokens', async (req, res) => {
-  if (!REST_API_URL || !API_KEY) {
-    return res.status(500).json({ error: 'API not configured' });
+  const { userName, tokenType = 'MP', organization } = req.body;
+  const org = organization || ORGANIZATION;
+
+  if (!BSIDCA_USER || !BSIDCA_PASSWORD) {
+    return res.json({
+      success: false,
+      error: 'BSIDCA credentials not configured',
+      note: 'Token provisioning requires BSIDCA SOAP API. Set BSIDCA_User, BSIDCA_Password, and ORGANIZATION environment variables.',
+      documentation: {
+        message: 'The STA REST API does not support token provisioning. You must use the BSIDCA SOAP API.',
+        endpoints: {
+          'ProvisionUsers': 'Provision a list of users with a token',
+          'AssignToken': 'Assign an existing token to a user',
+          'GetMobilePASSProvisioningActivationCode': 'Get activation code for MobilePASS'
+        },
+        reference: 'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html'
+      },
+      debug: {
+        attempted: {
+          userName,
+          tokenType,
+          organization: org
+        }
+      }
+    });
   }
 
-  const { userId, tokenType = 'MobilePASS', deliveryMethod = 'email' } = req.body;
-  const payload = { userId, tokenType, deliveryMethod };
-
-  const url = `${REST_API_URL}tokens`;
+  // Build SOAP envelope for ProvisionUsers
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:bsid="http://www.cryptocard.com/blackshield/">
+  <soap:Body>
+    <bsid:ProvisionUsers>
+      <bsid:userNames>
+        <bsid:string>${userName}</bsid:string>
+      </bsid:userNames>
+      <bsid:tokenClass>${tokenType}</bsid:tokenClass>
+      <bsid:organization>${org}</bsid:organization>
+    </bsid:ProvisionUsers>
+  </soap:Body>
+</soap:Envelope>`;
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(BSIDCA_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/ProvisionUsers'
       },
-      body: JSON.stringify(payload)
+      body: soapEnvelope
     });
-    const data = await safeParseResponse(response);
+
+    const responseText = await response.text();
+
     res.json({
       success: response.ok,
       status: response.status,
-      data: data,
+      data: { rawResponse: responseText },
       debug: {
-        method: 'POST',
-        url: url,
-        body: payload,
-        headers: { 'Authorization': 'Bearer ***' }
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message, stack: err.stack });
-  }
-});
-
-// REST: Get Tokens
-app.get('/api/tokens', async (req, res) => {
-  if (!REST_API_URL || !API_KEY) {
-    return res.status(500).json({ error: 'API not configured' });
-  }
-
-  try {
-    const response = await fetch(`${REST_API_URL}tokens`, {
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      }
-    });
-    const data = await safeParseResponse(response);
-    res.json({
-      success: response.ok,
-      status: response.status,
-      data: data,
-      debug: {
-        method: 'GET',
-        url: `${REST_API_URL}tokens`
+        method: 'POST (SOAP)',
+        url: BSIDCA_URL,
+        soapAction: 'ProvisionUsers',
+        body: { userName, tokenType, organization: org }
       }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Info endpoint about token provisioning
+app.get('/api/tokens/info', (req, res) => {
+  res.json({
+    message: 'Token provisioning in STA requires the BSIDCA SOAP API',
+    scimApiSupports: ['Create User', 'Read User', 'Update User', 'Delete User'],
+    bsidcaApiSupports: ['ProvisionUsers', 'AssignToken', 'ActivateToken', 'SuspendToken', 'GetMobilePASSProvisioningActivationCode'],
+    workflow: {
+      step1: 'Create user via SCIM API (working)',
+      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials)',
+      step3: 'User receives activation email'
+    },
+    requiredEnvVars: {
+      forScim: ['SCIM_API_Endpoint_Url', 'API_KEY'],
+      forBsidca: ['BSIDCA_User', 'BSIDCA_Password', 'ORGANIZATION']
+    },
+    documentation: [
+      'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html',
+      'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-mobilepass/index.html'
+    ]
+  });
 });
 
 // Health check for Railway
@@ -215,7 +249,8 @@ app.get('/', (req, res) => {
 // Start server
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`REST API: ${REST_API_URL || 'NOT SET'}`);
   console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
+  console.log(`BSIDCA: ${BSIDCA_URL}`);
   console.log(`API Key: ${API_KEY ? 'SET' : 'NOT SET'}`);
+  console.log(`BSIDCA Auth: ${BSIDCA_USER ? 'SET' : 'NOT SET'}`);
 });
