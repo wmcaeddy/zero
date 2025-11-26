@@ -222,12 +222,25 @@ app.post('/api/scim/users', async (req, res) => {
     return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
-  const { userName, givenName, familyName, email } = req.body;
+  const { userId, email, givenName, familyName } = req.body;
+
+  // Build SCIM payload
+  // userName is the unique identifier for the user (required by SCIM)
+  // externalId can be used for external system identifiers
+  // emails array contains the email address(es)
   const payload = {
     schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
-    userName: userName,
-    name: { givenName, familyName },
-    emails: [{ value: email || userName, type: "work", primary: true }],
+    userName: userId,  // Use the User ID as the SCIM userName
+    externalId: userId,  // Also set as externalId for reference
+    name: {
+      givenName: givenName,
+      familyName: familyName
+    },
+    emails: [{
+      value: email,
+      type: "work",
+      primary: true
+    }],
     active: true
   };
 
@@ -249,7 +262,8 @@ app.post('/api/scim/users', async (req, res) => {
       debug: {
         method: 'POST',
         url: `${SCIM_API_URL}Users`,
-        body: payload
+        body: payload,
+        note: 'userName and externalId both set to userId, email stored separately in emails array'
       }
     });
   } catch (err) {

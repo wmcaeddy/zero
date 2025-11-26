@@ -56,8 +56,12 @@
         <h2>Create User <span class="badge badge-scim">SCIM</span></h2>
         <form id="createUserForm">
           <div class="form-group">
-            <label>Email / Username</label>
-            <input type="email" id="userName" required placeholder="user@example.com">
+            <label>User ID (Username/Identifier)</label>
+            <input type="text" id="userId" required placeholder="jdoe or john.doe@example.com">
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="emailAddress" required placeholder="john.doe@example.com">
           </div>
           <div class="form-group">
             <label>First Name</label>
@@ -154,18 +158,22 @@
           if (data.data.Resources.length === 0) {
             list.innerHTML = '<div class="loading">No users found</div>';
           } else {
-            list.innerHTML = data.data.Resources.map(u => `
+            list.innerHTML = data.data.Resources.map(u => {
+              const emailValue = u.emails && u.emails.length > 0 ? u.emails[0].value : '';
+              return `
               <div class="user-item">
                 <div class="user-info">
                   <div class="user-name">${u.name?.givenName || ''} ${u.name?.familyName || ''}</div>
-                  <div class="user-id">${u.userName || u.id}</div>
+                  <div class="user-id">ID: ${u.userName || u.id}</div>
+                  ${emailValue ? `<div class="user-id">Email: ${emailValue}</div>` : ''}
                 </div>
                 <div class="user-actions">
                   <button onclick="selectUser('${u.userName || u.id}')">Select</button>
                   <button class="danger" onclick="deleteUser('${u.id}')">Delete</button>
                 </div>
               </div>
-            `).join('');
+              `;
+            }).join('');
           }
         } else {
           list.innerHTML = '<div class="loading">Failed to load</div>';
@@ -201,16 +209,17 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userName: document.getElementById('userName').value,
+            userId: document.getElementById('userId').value,
+            email: document.getElementById('emailAddress').value,
             givenName: document.getElementById('givenName').value,
-            familyName: document.getElementById('familyName').value,
-            email: document.getElementById('userName').value
+            familyName: document.getElementById('familyName').value
           })
         });
         const data = await res.json();
         log(data);
         if (data.success) {
           alert('User created! ID: ' + (data.data?.id || 'See debug'));
+          e.target.reset();
           loadUsers();
         }
       } catch (e) {
