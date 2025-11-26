@@ -46,7 +46,7 @@ app.get('/api/scim/users', async (req, res) => {
     const response = await fetch(`${SCIM_API_URL}Users`, {
       headers: {
         'Accept': 'application/scim+json',
-        'apikey': API_KEY
+        'X-API-Key': API_KEY
       }
     });
     const data = await safeParseResponse(response);
@@ -86,7 +86,7 @@ app.post('/api/scim/users', async (req, res) => {
       headers: {
         'Content-Type': 'application/scim+json',
         'Accept': 'application/scim+json',
-        'apikey': API_KEY
+        'X-API-Key': API_KEY
       },
       body: JSON.stringify(payload)
     });
@@ -117,7 +117,7 @@ app.delete('/api/scim/users/:id', async (req, res) => {
       method: 'DELETE',
       headers: {
         'Accept': 'application/scim+json',
-        'apikey': API_KEY
+        'X-API-Key': API_KEY
       }
     });
     const data = await safeParseResponse(response);
@@ -152,7 +152,7 @@ app.post('/api/tokens', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'apikey': API_KEY
+        'X-API-Key': API_KEY
       },
       body: JSON.stringify(payload)
     });
@@ -183,7 +183,7 @@ app.get('/api/tokens', async (req, res) => {
     const response = await fetch(`${REST_API_URL}tokens`, {
       headers: {
         'Accept': 'application/json',
-        'apikey': API_KEY
+        'X-API-Key': API_KEY
       }
     });
     const data = await safeParseResponse(response);
