@@ -1,0 +1,4 @@
+providers = ["node", "python"]
+
+[start]
+cmd = "echo Node $(node --version) && python --version"
