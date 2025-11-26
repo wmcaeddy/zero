@@ -13,12 +13,26 @@ const API_KEY = process.env.API_KEY || '';
 app.use(express.json());
 app.use(express.static('public'));
 
+// Helper to safely parse JSON response
+async function safeParseResponse(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { rawResponse: text, parseError: e.message };
+  }
+}
+
 // Health check / status endpoint
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    configured: !!(REST_API_URL && SCIM_API_URL && API_KEY)
+    configured: !!(REST_API_URL && SCIM_API_URL && API_KEY),
+    endpoints: {
+      rest: REST_API_URL || 'NOT SET',
+      scim: SCIM_API_URL || 'NOT SET'
+    }
   });
 });
 
@@ -35,7 +49,7 @@ app.get('/api/scim/users', async (req, res) => {
         'apikey': API_KEY
       }
     });
-    const data = await response.json();
+    const data = await safeParseResponse(response);
     res.json({
       success: response.ok,
       status: response.status,
@@ -76,7 +90,7 @@ app.post('/api/scim/users', async (req, res) => {
       },
       body: JSON.stringify(payload)
     });
-    const data = await response.json();
+    const data = await safeParseResponse(response);
     res.json({
       success: response.ok,
       status: response.status,
@@ -106,9 +120,11 @@ app.delete('/api/scim/users/:id', async (req, res) => {
         'apikey': API_KEY
       }
     });
+    const data = await safeParseResponse(response);
     res.json({
       success: response.ok,
       status: response.status,
+      data: data,
       debug: {
         method: 'DELETE',
         url: `${SCIM_API_URL}Users/${req.params.id}`
@@ -128,8 +144,10 @@ app.post('/api/tokens', async (req, res) => {
   const { userId, tokenType = 'MobilePASS', deliveryMethod = 'email' } = req.body;
   const payload = { userId, tokenType, deliveryMethod };
 
+  const url = `${REST_API_URL}tokens`;
+
   try {
-    const response = await fetch(`${REST_API_URL}tokens`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -138,19 +156,20 @@ app.post('/api/tokens', async (req, res) => {
       },
       body: JSON.stringify(payload)
     });
-    const data = await response.json();
+    const data = await safeParseResponse(response);
     res.json({
       success: response.ok,
       status: response.status,
       data: data,
       debug: {
         method: 'POST',
-        url: `${REST_API_URL}tokens`,
-        body: payload
+        url: url,
+        body: payload,
+        responseHeaders: Object.fromEntries(response.headers.entries())
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
 
@@ -167,7 +186,7 @@ app.get('/api/tokens', async (req, res) => {
         'apikey': API_KEY
       }
     });
-    const data = await response.json();
+    const data = await safeParseResponse(response);
     res.json({
       success: response.ok,
       status: response.status,
@@ -192,7 +211,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server - bind to :: for Railway IPv6 compatibility
+// Start server
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`REST API: ${REST_API_URL || 'NOT SET'}`);
