@@ -299,7 +299,7 @@ function xmlEscape(str) {
 
 // BSIDCA SOAP: Provision Token (ProvisionUsers method)
 app.post('/api/tokens', async (req, res) => {
-  const { userName, tokenType = 'Software', description = '', organization } = req.body;
+  const { userId, userName, tokenType = 'Software', description = '', organization } = req.body;
   const org = organization || ORGANIZATION;
 
   if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
@@ -320,6 +320,7 @@ app.post('/api/tokens', async (req, res) => {
       },
       debug: {
         attempted: {
+          userId,
           userName,
           tokenType,
           organization: org
@@ -402,7 +403,8 @@ app.post('/api/tokens', async (req, res) => {
           method: 'POST (SOAP)',
           url: BSIDCA_URL,
           soapAction: 'ProvisionUsers',
-          body: { userName, tokenType, description, organization: org }
+          body: { userId, userName, tokenType, description, organization: org },
+          note: 'userId is for reference only. BSIDCA ProvisionUsers API uses userName (email) for provisioning.'
         }
       });
     }
@@ -417,7 +419,8 @@ app.post('/api/tokens', async (req, res) => {
         method: 'POST (SOAP)',
         url: BSIDCA_URL,
         soapAction: 'ProvisionUsers',
-        body: { userName, tokenType, description, organization: org }
+        body: { userId, userName, tokenType, description, organization: org },
+        note: 'userId is for reference only. BSIDCA ProvisionUsers API uses userName (email) for provisioning.'
       }
     });
   } catch (err) {
