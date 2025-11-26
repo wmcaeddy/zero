@@ -63,3 +63,12 @@ result
 .vstags
 
 .idea/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+
+# Node.js
+node_modules/
+npm-debug.log*
