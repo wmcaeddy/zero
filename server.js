@@ -39,9 +39,10 @@ function createDebugInfo(method, url, headers, body, response, error = null) {
   };
 }
 
-// API Status endpoint
+// API Status endpoint (also serves as health check)
 app.get('/api/status', (req, res) => {
-  res.json({
+  res.status(200).json({
+    status: 'ok',
     configured: !!(REST_API_ENDPOINT && SCIM_API_ENDPOINT && API_KEY),
     endpoints: {
       rest: REST_API_ENDPOINT ? REST_API_ENDPOINT.replace(/\/[^\/]+\/$/, '/***TENANT***/') : null,
