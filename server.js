@@ -394,8 +394,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`STA API Demo server listening on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`STA API Demo server listening on 0.0.0.0:${PORT}`);
   console.log(`REST API Endpoint: ${REST_API_ENDPOINT || 'NOT CONFIGURED'}`);
   console.log(`SCIM API Endpoint: ${SCIM_API_ENDPOINT || 'NOT CONFIGURED'}`);
   console.log(`API Key: ${API_KEY ? '***CONFIGURED***' : 'NOT CONFIGURED'}`);
