@@ -60,6 +60,36 @@ app.use(authMiddleware);
 
 app.use(express.static('public'));
 
+// Helper to mask sensitive data in headers
+function maskSensitiveHeaders(headers) {
+  const masked = { ...headers };
+  if (masked.Authorization) {
+    const parts = masked.Authorization.split(' ');
+    if (parts.length === 2) {
+      masked.Authorization = `${parts[0]} ${parts[1].substring(0, 8)}...***`;
+    }
+  }
+  if (masked.Cookie) {
+    masked.Cookie = masked.Cookie.substring(0, 20) + '...***';
+  }
+  return masked;
+}
+
+// Helper to mask sensitive data in SOAP envelope
+function maskSoapEnvelope(soapXml) {
+  // Mask password/OTP in Connect request
+  let masked = soapXml.replace(
+    /(<OTP>)(.*?)(<\/OTP>)/g,
+    '$1***$3'
+  );
+  // Mask cookie values if present
+  masked = masked.replace(
+    /(ASP\.NET_SessionId=)([^;]+)/g,
+    '$1***'
+  );
+  return masked;
+}
+
 // Helper to safely parse JSON response
 async function safeParseResponse(response) {
   const text = await response.text();
@@ -231,12 +261,15 @@ app.get('/api/scim/users', async (req, res) => {
     return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
+  const requestUrl = `${SCIM_API_URL}Users`;
+  const requestHeaders = {
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
   try {
-    const response = await fetch(`${SCIM_API_URL}Users`, {
-      headers: {
-        'Accept': 'application/scim+json',
-        'Authorization': `Bearer ${API_KEY}`
-      }
+    const response = await fetch(requestUrl, {
+      headers: requestHeaders
     });
     const data = await safeParseResponse(response);
     res.json({
@@ -244,9 +277,19 @@ app.get('/api/scim/users', async (req, res) => {
       status: response.status,
       data: data,
       debug: {
-        method: 'GET',
-        url: `${SCIM_API_URL}Users`,
-        headers: { 'Accept': 'application/scim+json', 'Authorization': 'Bearer ***' }
+        request: {
+          method: 'GET',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: null
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
       }
     });
   } catch (err) {
@@ -282,14 +325,17 @@ app.post('/api/scim/users', async (req, res) => {
     active: true
   };
 
+  const requestUrl = `${SCIM_API_URL}Users`;
+  const requestHeaders = {
+    'Content-Type': 'application/scim+json',
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
   try {
-    const response = await fetch(`${SCIM_API_URL}Users`, {
+    const response = await fetch(requestUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/scim+json',
-        'Accept': 'application/scim+json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
+      headers: requestHeaders,
       body: JSON.stringify(payload)
     });
     const data = await safeParseResponse(response);
@@ -298,10 +344,20 @@ app.post('/api/scim/users', async (req, res) => {
       status: response.status,
       data: data,
       debug: {
-        method: 'POST',
-        url: `${SCIM_API_URL}Users`,
-        body: payload,
-        note: 'userName and externalId both set to userId, email stored separately in emails array'
+        request: {
+          method: 'POST',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: payload,
+          note: 'userName and externalId both set to userId, email stored separately in emails array'
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
       }
     });
   } catch (err) {
@@ -315,13 +371,16 @@ app.delete('/api/scim/users/:id', async (req, res) => {
     return res.status(500).json({ error: 'SCIM API not configured' });
   }
 
+  const requestUrl = `${SCIM_API_URL}Users/${req.params.id}`;
+  const requestHeaders = {
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
   try {
-    const response = await fetch(`${SCIM_API_URL}Users/${req.params.id}`, {
+    const response = await fetch(requestUrl, {
       method: 'DELETE',
-      headers: {
-        'Accept': 'application/scim+json',
-        'Authorization': `Bearer ${API_KEY}`
-      }
+      headers: requestHeaders
     });
     const data = await safeParseResponse(response);
     res.json({
@@ -329,8 +388,19 @@ app.delete('/api/scim/users/:id', async (req, res) => {
       status: response.status,
       data: data,
       debug: {
-        method: 'DELETE',
-        url: `${SCIM_API_URL}Users/${req.params.id}`
+        request: {
+          method: 'DELETE',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: null
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
       }
     });
   } catch (err) {
@@ -451,10 +521,23 @@ app.post('/api/tokens', async (req, res) => {
         data: parsed,
         recommendation: 'Please ensure the user exists in the STA organization before provisioning a token. You can create users via the SCIM API endpoint.',
         debug: {
-          method: 'POST (SOAP)',
-          url: BSIDCA_URL,
-          soapAction: 'ProvisionUsers',
-          body: { userName, tokenType, description, organization: org }
+          request: {
+            method: 'POST',
+            url: BSIDCA_URL,
+            headers: maskSensitiveHeaders(headers),
+            soapAction: 'ProvisionUsers',
+            contentType: 'SOAP/XML',
+            soapEnvelope: maskSoapEnvelope(soapEnvelope),
+            parameters: { userName, tokenType, description, organization: org }
+          },
+          response: {
+            status: response.status,
+            statusText: response.statusText,
+            headers: {
+              'content-type': response.headers.get('content-type')
+            },
+            bodyPreview: responseText.substring(0, 500) + '...'
+          }
         }
       });
     }
@@ -466,10 +549,22 @@ app.post('/api/tokens', async (req, res) => {
       provisioningResults: results,
       data: parsed,
       debug: {
-        method: 'POST (SOAP)',
-        url: BSIDCA_URL,
-        soapAction: 'ProvisionUsers',
-        body: { userName, tokenType, description, organization: org }
+        request: {
+          method: 'POST',
+          url: BSIDCA_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'ProvisionUsers',
+          contentType: 'SOAP/XML',
+          soapEnvelope: maskSoapEnvelope(soapEnvelope),
+          parameters: { userName, tokenType, description, organization: org }
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
       }
     });
   } catch (err) {
@@ -550,10 +645,22 @@ app.post('/api/tokens/activation-code', async (req, res) => {
       activationCode: activationCode,
       data: parsed,
       debug: {
-        method: 'POST (SOAP)',
-        url: BSIDCA_URL,
-        soapAction: 'GetMobilePASSProvisioningActivationCode',
-        body: { userName, taskID, organization: org }
+        request: {
+          method: 'POST',
+          url: BSIDCA_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'GetMobilePASSProvisioningActivationCode',
+          contentType: 'SOAP/XML',
+          soapEnvelope: maskSoapEnvelope(soapEnvelope),
+          parameters: { userName, taskID, organization: org }
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
       }
     });
   } catch (err) {
