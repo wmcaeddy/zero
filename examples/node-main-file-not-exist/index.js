@@ -1,1 +1,0 @@
-console.log("The main file doesn't exist!")

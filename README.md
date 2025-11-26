@@ -1,17 +1,113 @@
-# Nixpacks
+# STA/SAS PCE API Demo
 
-[![CI](https://github.com/railwayapp/nixpacks/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/railwayapp/nixpacks/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/nixpacks)](https://crates.io/crates/nixpacks)
-[![Rust: 1.70+](https://img.shields.io/badge/rust-1.70+-93450a)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+A web interface to demonstrate SafeNet Trusted Access (STA) API functionality for user registration via SCIM and MobilePASS+ token provisioning via REST API.
 
-> **⚠️ Maintenance Mode:** This project is currently in maintenance mode and is not under active development. We recommend using [Railpack](https://github.com/railwayapp/railpack) as a replacement.
+## Overview
 
-**App source + Nix packages + Docker = Image**
+This demo shows how to add users to STA/SAS PCE via API **without LDAP synchronization**:
 
-Nixpacks takes a source directory and produces an OCI compliant image that can be deployed anywhere. The project was started by the [Railway](https://railway.app) team as an alternative to [Buildpacks](https://buildpacks.io/) and attempts to address a lot of the shortcomings and issues that occurred when deploying thousands of user apps to the Railway platform. The biggest change is that system and language dependencies are pulled from the Nix ecosystem.
+1. **Register User via SCIM** - Create users using SCIM 2.0 API
+2. **Provision MobilePASS+ Token via REST** - Automatically provision tokens and send activation links
 
-Read the docs 👉 [nixpacks.com](https://nixpacks.com).
+## Deployment to Railway
 
-## Contributing
+### 1. Set Environment Variables
 
-Contributions are welcome with the big caveat that this is a very early stage project and the implementation details and API will most likely change between now and a stable release. For more details on how to contribute, please see the [Contributing guidelines](./CONTRIBUTING.md).
+In your Railway project settings, add these environment variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `REST_API_Endpoint_Url` | REST API endpoint for token operations | `https://api.eu.safenetid.com/api/v1/tenants/YOUR_TENANT/` |
+| `SCIM_API_Endpoint_Url` | SCIM API endpoint for user management | `https://api.eu.safenetid.com/tenants/YOUR_TENANT/scim/v2/` |
+| `API_KEY` | Your STA API key | `your-api-key` |
+
+### 2. Deploy
+
+Connect your GitHub repository to Railway for automatic deployments, or use the CLI:
+
+```bash
+railway up
+```
+
+## Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your credentials
+
+# Start the server
+npm start
+```
+
+Open http://localhost:3000
+
+## API Endpoints
+
+### SCIM Endpoints (User Management)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/scim/users` | Create a new user |
+| `GET` | `/api/scim/users` | List all users |
+| `GET` | `/api/scim/users/:id` | Get user by ID |
+| `DELETE` | `/api/scim/users/:id` | Delete user |
+
+### REST Endpoints (Token Management)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/tokens` | Provision a new MobilePASS+ token |
+| `GET` | `/api/tokens` | List all tokens |
+| `GET` | `/api/rest/users` | List users via REST API |
+
+## SCIM User Registration Example
+
+```json
+POST /api/scim/users
+
+{
+  "userName": "john.doe@example.com",
+  "givenName": "John",
+  "familyName": "Doe",
+  "email": "john.doe@example.com"
+}
+```
+
+## MobilePASS+ Provisioning Example
+
+```json
+POST /api/tokens
+
+{
+  "userId": "<User ID from SCIM>",
+  "tokenType": "MobilePASS",
+  "deliveryMethod": "email"
+}
+```
+
+When `deliveryMethod` is set to `email`, the user receives an activation link to register the token in the MobilePASS app.
+
+## Debug Information
+
+The web interface shows detailed debug information for each API call including:
+- Full request details (method, URL, headers, body)
+- Response status and data
+- Error messages if any
+
+## Workflow
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  1. Register    │────▶│  2. Get User    │────▶│  3. Provision   │
+│  User (SCIM)    │     │     ID          │     │  Token (REST)   │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+## References
+
+- [STA SCIM API Documentation](https://thalesdocs.com/sta/operator/scim/index.html)
+- [STA REST API Documentation](https://thalesdocs.com/sta/operator/rest/index.html)

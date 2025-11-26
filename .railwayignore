@@ -1,9 +1,0 @@
-# Ignore root Rust project files for Railway
-Cargo.toml
-Cargo.lock
-src/
-target/
-examples/
-tests/
-docs/
-*.rs
