@@ -182,14 +182,19 @@ app.get('/api/tokens', async (req, res) => {
   }
 });
 
+// Health check for Railway
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Serve frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+// Start server - bind to :: for Railway IPv6 compatibility
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
   console.log(`REST API: ${REST_API_URL || 'NOT SET'}`);
   console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
   console.log(`API Key: ${API_KEY ? 'SET' : 'NOT SET'}`);
