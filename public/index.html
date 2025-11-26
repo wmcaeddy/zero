@@ -3,525 +3,59 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>STA/SAS PCE API Demo</title>
+  <title>STA API Demo</title>
   <style>
-    :root {
-      --primary: #2563eb;
-      --primary-dark: #1d4ed8;
-      --success: #10b981;
-      --error: #ef4444;
-      --warning: #f59e0b;
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --text: #1e293b;
-      --text-muted: #64748b;
-      --border: #e2e8f0;
-      --code-bg: #1e293b;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-    }
-
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    header {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-      color: white;
-      padding: 30px 20px;
-      margin-bottom: 30px;
-      border-radius: 12px;
-    }
-
-    header h1 {
-      font-size: 1.8rem;
-      margin-bottom: 8px;
-    }
-
-    header p {
-      opacity: 0.9;
-      font-size: 0.95rem;
-    }
-
-    .status-bar {
-      display: flex;
-      gap: 20px;
-      margin-top: 15px;
-      flex-wrap: wrap;
-    }
-
-    .status-item {
-      background: rgba(255,255,255,0.15);
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 0.85rem;
-    }
-
-    .status-item.connected {
-      background: rgba(16, 185, 129, 0.3);
-    }
-
-    .status-item.disconnected {
-      background: rgba(239, 68, 68, 0.3);
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-
-    @media (max-width: 1024px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .card {
-      background: var(--card-bg);
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      border: 1px solid var(--border);
-    }
-
-    .card h2 {
-      font-size: 1.2rem;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .card h2 .badge {
-      font-size: 0.7rem;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-weight: 500;
-    }
-
-    .badge-scim {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-
-    .badge-rest {
-      background: #dcfce7;
-      color: #166534;
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    label {
-      display: block;
-      font-weight: 500;
-      margin-bottom: 6px;
-      font-size: 0.9rem;
-      color: var(--text-muted);
-    }
-
-    input, select {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      font-size: 0.95rem;
-      transition: border-color 0.2s;
-    }
-
-    input:focus, select:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-    }
-
-    button {
-      background: var(--primary);
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 6px;
-      font-size: 0.95rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s;
-      width: 100%;
-    }
-
-    button:hover {
-      background: var(--primary-dark);
-    }
-
-    button:disabled {
-      background: var(--text-muted);
-      cursor: not-allowed;
-    }
-
-    button.secondary {
-      background: var(--text-muted);
-    }
-
-    button.secondary:hover {
-      background: #475569;
-    }
-
-    button.danger {
-      background: var(--error);
-    }
-
-    button.danger:hover {
-      background: #dc2626;
-    }
-
-    .button-group {
-      display: flex;
-      gap: 10px;
-      margin-top: 16px;
-    }
-
-    .button-group button {
-      flex: 1;
-    }
-
-    .debug-panel {
-      grid-column: 1 / -1;
-      margin-top: 20px;
-    }
-
-    .debug-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .debug-header h2 {
-      margin-bottom: 0;
-    }
-
-    .debug-tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
-    }
-
-    .debug-tab {
-      padding: 8px 16px;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      border-radius: 6px 6px 0 0;
-      font-size: 0.9rem;
-      width: auto;
-    }
-
-    .debug-tab.active {
-      background: var(--code-bg);
-      color: white;
-    }
-
-    .debug-content {
-      background: var(--code-bg);
-      border-radius: 8px;
-      padding: 16px;
-      max-height: 500px;
-      overflow: auto;
-    }
-
-    pre {
-      margin: 0;
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 0.85rem;
-      line-height: 1.5;
-      color: #e2e8f0;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .json-key { color: #7dd3fc; }
-    .json-string { color: #86efac; }
-    .json-number { color: #fca5a5; }
-    .json-boolean { color: #c4b5fd; }
-    .json-null { color: #94a3b8; }
-
-    .response-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      margin-bottom: 12px;
-    }
-
-    .response-status.success {
-      background: rgba(16, 185, 129, 0.2);
-      color: #10b981;
-    }
-
-    .response-status.error {
-      background: rgba(239, 68, 68, 0.2);
-      color: #ef4444;
-    }
-
-    .loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px;
-      color: var(--text-muted);
-    }
-
-    .spinner {
-      width: 24px;
-      height: 24px;
-      border: 3px solid var(--border);
-      border-top-color: var(--primary);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin-right: 12px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .user-list {
-      margin-top: 16px;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-
-    .user-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 8px;
-      background: var(--bg);
-    }
-
-    .user-item:hover {
-      border-color: var(--primary);
-    }
-
-    .user-info {
-      flex: 1;
-    }
-
-    .user-name {
-      font-weight: 500;
-      margin-bottom: 2px;
-    }
-
-    .user-email {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .user-id {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      font-family: monospace;
-    }
-
-    .user-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .user-actions button {
-      width: auto;
-      padding: 6px 12px;
-      font-size: 0.8rem;
-    }
-
-    .workflow-section {
-      grid-column: 1 / -1;
-    }
-
-    .workflow-steps {
-      display: flex;
-      gap: 20px;
-      margin-top: 20px;
-    }
-
-    @media (max-width: 768px) {
-      .workflow-steps {
-        flex-direction: column;
-      }
-    }
-
-    .workflow-step {
-      flex: 1;
-      background: var(--bg);
-      padding: 20px;
-      border-radius: 8px;
-      border: 2px dashed var(--border);
-      text-align: center;
-    }
-
-    .workflow-step.active {
-      border-color: var(--primary);
-      border-style: solid;
-    }
-
-    .workflow-step.completed {
-      border-color: var(--success);
-      border-style: solid;
-      background: rgba(16, 185, 129, 0.05);
-    }
-
-    .step-number {
-      width: 32px;
-      height: 32px;
-      background: var(--border);
-      color: var(--text-muted);
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-
-    .workflow-step.active .step-number {
-      background: var(--primary);
-      color: white;
-    }
-
-    .workflow-step.completed .step-number {
-      background: var(--success);
-      color: white;
-    }
-
-    .step-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .step-desc {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .arrow {
-      display: flex;
-      align-items: center;
-      color: var(--text-muted);
-      font-size: 1.5rem;
-    }
-
-    @media (max-width: 768px) {
-      .arrow {
-        transform: rotate(90deg);
-        justify-content: center;
-      }
-    }
-
-    .info-box {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
-    }
-
-    .info-box h3 {
-      color: #1e40af;
-      font-size: 0.95rem;
-      margin-bottom: 8px;
-    }
-
-    .info-box p {
-      color: #1e40af;
-      font-size: 0.85rem;
-      opacity: 0.8;
-    }
-
-    .clear-btn {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 6px 12px;
-      font-size: 0.8rem;
-      width: auto;
-    }
-
-    .clear-btn:hover {
-      background: var(--bg);
-      color: var(--text);
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: #333; margin-bottom: 10px; }
+    .subtitle { color: #666; margin-bottom: 30px; }
+    .status { padding: 10px 15px; border-radius: 6px; margin-bottom: 20px; }
+    .status.ok { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .card h2 { font-size: 1.1rem; margin-bottom: 15px; color: #333; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px; }
+    .badge-scim { background: #e3f2fd; color: #1565c0; }
+    .badge-rest { background: #e8f5e9; color: #2e7d32; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
+    input:focus, select:focus { outline: none; border-color: #2196f3; }
+    button { width: 100%; padding: 10px; background: #2196f3; color: white; border: none; border-radius: 4px; font-size: 0.95rem; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #1976d2; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.secondary { background: #757575; }
+    button.secondary:hover { background: #616161; }
+    button.danger { background: #f44336; }
+    button.danger:hover { background: #d32f2f; }
+    .debug { margin-top: 30px; }
+    .debug h2 { margin-bottom: 15px; }
+    .debug-content { background: #263238; color: #aed581; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .user-list { margin-top: 15px; max-height: 250px; overflow-y: auto; }
+    .user-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f9f9f9; border-radius: 4px; margin-bottom: 8px; }
+    .user-info { flex: 1; }
+    .user-name { font-weight: 500; }
+    .user-id { font-size: 0.75rem; color: #999; font-family: monospace; }
+    .user-actions { display: flex; gap: 5px; }
+    .user-actions button { width: auto; padding: 5px 10px; font-size: 0.8rem; margin: 0; }
+    .loading { text-align: center; padding: 20px; color: #666; }
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>STA/SAS PCE API Demo</h1>
-      <p>Demonstrate SCIM User Registration & MobilePASS+ Token Provisioning via REST API</p>
-      <div class="status-bar">
-        <div class="status-item" id="rest-status">REST API: Checking...</div>
-        <div class="status-item" id="scim-status">SCIM API: Checking...</div>
-        <div class="status-item" id="key-status">API Key: Checking...</div>
-      </div>
-    </header>
+    <h1>STA/SAS PCE API Demo</h1>
+    <p class="subtitle">SCIM User Registration & MobilePASS+ Token Provisioning</p>
 
-    <div class="info-box">
-      <h3>Workflow Overview</h3>
-      <p>This demo shows how to add users to STA/SAS PCE via API without LDAP synchronization.
-         First, register users via SCIM API, then provision MobilePASS+ tokens via REST API.</p>
-    </div>
-
-    <div class="card workflow-section">
-      <h2>Workflow Progress</h2>
-      <div class="workflow-steps">
-        <div class="workflow-step" id="step-1">
-          <div class="step-number">1</div>
-          <div class="step-title">Register User (SCIM)</div>
-          <div class="step-desc">Create user via SCIM API</div>
-        </div>
-        <div class="arrow">&rarr;</div>
-        <div class="workflow-step" id="step-2">
-          <div class="step-number">2</div>
-          <div class="step-title">Get User ID</div>
-          <div class="step-desc">Retrieve the created user's ID</div>
-        </div>
-        <div class="arrow">&rarr;</div>
-        <div class="workflow-step" id="step-3">
-          <div class="step-number">3</div>
-          <div class="step-title">Provision Token (REST)</div>
-          <div class="step-desc">Create MobilePASS+ token</div>
-        </div>
-      </div>
-    </div>
+    <div id="status" class="status">Checking API status...</div>
 
     <div class="grid">
       <div class="card">
-        <h2><span class="badge badge-scim">SCIM</span> Create User</h2>
-        <form id="create-user-form">
+        <h2>Create User <span class="badge badge-scim">SCIM</span></h2>
+        <form id="createUserForm">
           <div class="form-group">
-            <label>Username / Email</label>
+            <label>Email / Username</label>
             <input type="email" id="userName" required placeholder="user@example.com">
           </div>
           <div class="form-group">
@@ -532,27 +66,24 @@
             <label>Last Name</label>
             <input type="text" id="familyName" required placeholder="Doe">
           </div>
-          <button type="submit">Create User via SCIM</button>
+          <button type="submit">Create User</button>
         </form>
       </div>
 
       <div class="card">
-        <h2><span class="badge badge-scim">SCIM</span> Users List</h2>
-        <button id="refresh-users" class="secondary">Refresh Users</button>
-        <div class="user-list" id="user-list">
-          <div class="loading">
-            <div class="spinner"></div>
-            Click refresh to load users
-          </div>
+        <h2>Users <span class="badge badge-scim">SCIM</span></h2>
+        <button id="refreshUsers" class="secondary">Refresh Users</button>
+        <div id="userList" class="user-list">
+          <div class="loading">Click refresh to load users</div>
         </div>
       </div>
 
       <div class="card">
-        <h2><span class="badge badge-rest">REST</span> Provision MobilePASS+ Token</h2>
-        <form id="provision-token-form">
+        <h2>Provision Token <span class="badge badge-rest">REST</span></h2>
+        <form id="provisionTokenForm">
           <div class="form-group">
-            <label>User ID (from SCIM)</label>
-            <input type="text" id="userId" required placeholder="Paste user ID from list above">
+            <label>User ID</label>
+            <input type="text" id="userId" required placeholder="User ID from SCIM">
           </div>
           <div class="form-group">
             <label>Token Type</label>
@@ -564,7 +95,7 @@
           <div class="form-group">
             <label>Delivery Method</label>
             <select id="deliveryMethod">
-              <option value="email">Email (sends activation link)</option>
+              <option value="email">Email</option>
               <option value="sms">SMS</option>
             </select>
           </div>
@@ -573,168 +104,96 @@
       </div>
 
       <div class="card">
-        <h2><span class="badge badge-rest">REST</span> Tokens & Users</h2>
-        <div class="button-group">
-          <button id="get-tokens" class="secondary">Get Tokens</button>
-          <button id="get-rest-users" class="secondary">Get Users (REST)</button>
-        </div>
+        <h2>Tokens <span class="badge badge-rest">REST</span></h2>
+        <button id="refreshTokens" class="secondary">Get Tokens</button>
       </div>
+    </div>
 
-      <div class="card debug-panel">
-        <div class="debug-header">
-          <h2>Debug Information</h2>
-          <button class="clear-btn" onclick="clearDebug()">Clear</button>
-        </div>
-        <div class="debug-tabs">
-          <button class="debug-tab active" data-tab="request">Request</button>
-          <button class="debug-tab" data-tab="response">Response</button>
-          <button class="debug-tab" data-tab="full">Full Debug</button>
-        </div>
-        <div class="debug-content">
-          <pre id="debug-output">No requests made yet. Try creating a user or fetching data.</pre>
-        </div>
-      </div>
+    <div class="debug card">
+      <h2>Debug Output</h2>
+      <div id="debugOutput" class="debug-content">API responses will appear here...</div>
     </div>
   </div>
 
   <script>
-    let currentDebugData = null;
-    let currentTab = 'request';
-    let createdUserId = null;
+    const debugEl = document.getElementById('debugOutput');
+    const statusEl = document.getElementById('status');
 
-    // Check API status on load
+    function log(data) {
+      debugEl.textContent = JSON.stringify(data, null, 2);
+    }
+
     async function checkStatus() {
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
-
-        const restStatus = document.getElementById('rest-status');
-        const scimStatus = document.getElementById('scim-status');
-        const keyStatus = document.getElementById('key-status');
-
         if (data.configured) {
-          restStatus.textContent = `REST: ${data.endpoints.rest || 'Configured'}`;
-          restStatus.classList.add('connected');
-          scimStatus.textContent = `SCIM: ${data.endpoints.scim || 'Configured'}`;
-          scimStatus.classList.add('connected');
-          keyStatus.textContent = 'API Key: Configured';
-          keyStatus.classList.add('connected');
+          statusEl.className = 'status ok';
+          statusEl.textContent = 'API Connected - Ready to use';
         } else {
-          restStatus.textContent = 'REST: Not configured';
-          restStatus.classList.add('disconnected');
-          scimStatus.textContent = 'SCIM: Not configured';
-          scimStatus.classList.add('disconnected');
-          keyStatus.textContent = 'API Key: Missing';
-          keyStatus.classList.add('disconnected');
+          statusEl.className = 'status error';
+          statusEl.textContent = 'API Not Configured - Set environment variables in Railway';
+        }
+        log(data);
+      } catch (e) {
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function loadUsers() {
+      const list = document.getElementById('userList');
+      list.innerHTML = '<div class="loading">Loading...</div>';
+      try {
+        const res = await fetch('/api/scim/users');
+        const data = await res.json();
+        log(data);
+        if (data.success && data.data.Resources) {
+          if (data.data.Resources.length === 0) {
+            list.innerHTML = '<div class="loading">No users found</div>';
+          } else {
+            list.innerHTML = data.data.Resources.map(u => `
+              <div class="user-item">
+                <div class="user-info">
+                  <div class="user-name">${u.name?.givenName || ''} ${u.name?.familyName || ''}</div>
+                  <div class="user-id">${u.id}</div>
+                </div>
+                <div class="user-actions">
+                  <button onclick="selectUser('${u.id}')">Select</button>
+                  <button class="danger" onclick="deleteUser('${u.id}')">Delete</button>
+                </div>
+              </div>
+            `).join('');
+          }
+        } else {
+          list.innerHTML = '<div class="loading">Failed to load</div>';
         }
       } catch (e) {
-        console.error('Status check failed:', e);
+        list.innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
       }
     }
 
-    // Syntax highlighting for JSON
-    function syntaxHighlight(json) {
-      if (typeof json !== 'string') {
-        json = JSON.stringify(json, null, 2);
-      }
-      return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
-        let cls = 'json-number';
-        if (/^"/.test(match)) {
-          if (/:$/.test(match)) {
-            cls = 'json-key';
-          } else {
-            cls = 'json-string';
-          }
-        } else if (/true|false/.test(match)) {
-          cls = 'json-boolean';
-        } else if (/null/.test(match)) {
-          cls = 'json-null';
-        }
-        return '<span class="' + cls + '">' + match + '</span>';
-      });
+    function selectUser(id) {
+      document.getElementById('userId').value = id;
+      alert('User ID copied to token form');
     }
 
-    // Update debug panel
-    function updateDebug(data) {
-      currentDebugData = data;
-      renderDebugTab();
-
-      // Update workflow steps
-      if (data.debug?.request?.url?.includes('/scim/') && data.debug?.request?.method === 'POST' && data.success) {
-        document.getElementById('step-1').classList.add('completed');
-        document.getElementById('step-2').classList.add('active');
-
-        // Try to extract user ID
-        if (data.data?.id) {
-          createdUserId = data.data.id;
-          document.getElementById('userId').value = createdUserId;
-        }
-      }
-
-      if (data.debug?.request?.url?.includes('/tokens') && data.debug?.request?.method === 'POST' && data.success) {
-        document.getElementById('step-2').classList.add('completed');
-        document.getElementById('step-2').classList.remove('active');
-        document.getElementById('step-3').classList.add('completed');
+    async function deleteUser(id) {
+      if (!confirm('Delete this user?')) return;
+      try {
+        const res = await fetch('/api/scim/users/' + id, { method: 'DELETE' });
+        const data = await res.json();
+        log(data);
+        loadUsers();
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
     }
 
-    function renderDebugTab() {
-      const output = document.getElementById('debug-output');
-      if (!currentDebugData) {
-        output.innerHTML = 'No requests made yet.';
-        return;
-      }
-
-      let content;
-      switch (currentTab) {
-        case 'request':
-          content = {
-            method: currentDebugData.debug?.request?.method,
-            url: currentDebugData.debug?.request?.url,
-            headers: currentDebugData.debug?.request?.headers,
-            body: currentDebugData.debug?.request?.body
-          };
-          break;
-        case 'response':
-          content = {
-            success: currentDebugData.success,
-            status: currentDebugData.debug?.response?.status,
-            statusText: currentDebugData.debug?.response?.statusText,
-            data: currentDebugData.data
-          };
-          break;
-        case 'full':
-          content = currentDebugData;
-          break;
-      }
-
-      output.innerHTML = syntaxHighlight(JSON.stringify(content, null, 2));
-    }
-
-    // Tab switching
-    document.querySelectorAll('.debug-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.debug-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentTab = tab.dataset.tab;
-        renderDebugTab();
-      });
-    });
-
-    function clearDebug() {
-      currentDebugData = null;
-      document.getElementById('debug-output').innerHTML = 'Debug cleared.';
-    }
-
-    // Create User
-    document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+    document.getElementById('createUserForm').onsubmit = async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button');
       btn.disabled = true;
-      btn.textContent = 'Creating...';
-
-      document.getElementById('step-1').classList.add('active');
-
       try {
         const res = await fetch('/api/scim/users', {
           method: 'POST',
@@ -747,30 +206,21 @@
           })
         });
         const data = await res.json();
-        updateDebug(data);
-
+        log(data);
         if (data.success) {
-          alert('User created successfully! ID: ' + (data.data?.id || 'Check debug panel'));
-          refreshUsers();
-        } else {
-          alert('Failed to create user. Check debug panel for details.');
+          alert('User created! ID: ' + (data.data?.id || 'See debug'));
+          loadUsers();
         }
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        alert('Error: ' + err.message);
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
-
       btn.disabled = false;
-      btn.textContent = 'Create User via SCIM';
-    });
+    };
 
-    // Provision Token
-    document.getElementById('provision-token-form').addEventListener('submit', async (e) => {
+    document.getElementById('provisionTokenForm').onsubmit = async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button');
       btn.disabled = true;
-      btn.textContent = 'Provisioning...';
-
       try {
         const res = await fetch('/api/tokens', {
           method: 'POST',
@@ -782,132 +232,28 @@
           })
         });
         const data = await res.json();
-        updateDebug(data);
-
+        log(data);
         if (data.success) {
-          alert('Token provisioned successfully! User will receive activation via ' + document.getElementById('deliveryMethod').value);
-        } else {
-          alert('Failed to provision token. Check debug panel for details.');
+          alert('Token provisioned!');
         }
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        alert('Error: ' + err.message);
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
-
       btn.disabled = false;
-      btn.textContent = 'Provision Token';
-    });
+    };
 
-    // Refresh Users
-    async function refreshUsers() {
-      const list = document.getElementById('user-list');
-      list.innerHTML = '<div class="loading"><div class="spinner"></div>Loading users...</div>';
+    document.getElementById('refreshUsers').onclick = loadUsers;
 
-      try {
-        const res = await fetch('/api/scim/users');
-        const data = await res.json();
-        updateDebug(data);
-
-        if (data.success && data.data?.Resources) {
-          if (data.data.Resources.length === 0) {
-            list.innerHTML = '<div class="loading">No users found</div>';
-            return;
-          }
-
-          list.innerHTML = data.data.Resources.map(user => `
-            <div class="user-item">
-              <div class="user-info">
-                <div class="user-name">${user.name?.givenName || ''} ${user.name?.familyName || ''}</div>
-                <div class="user-email">${user.userName || user.emails?.[0]?.value || ''}</div>
-                <div class="user-id">ID: ${user.id}</div>
-              </div>
-              <div class="user-actions">
-                <button onclick="selectUser('${user.id}')">Select</button>
-                <button class="danger" onclick="deleteUser('${user.id}')">Delete</button>
-              </div>
-            </div>
-          `).join('');
-        } else {
-          list.innerHTML = '<div class="loading">Failed to load users. Check debug panel.</div>';
-        }
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        list.innerHTML = '<div class="loading">Error loading users</div>';
-      }
-    }
-
-    function selectUser(userId) {
-      document.getElementById('userId').value = userId;
-      createdUserId = userId;
-      document.getElementById('step-2').classList.add('completed');
-      document.getElementById('step-2').classList.remove('active');
-      document.getElementById('step-3').classList.add('active');
-      alert('User ID copied to token provisioning form');
-    }
-
-    async function deleteUser(userId) {
-      if (!confirm('Are you sure you want to delete this user?')) return;
-
-      try {
-        const res = await fetch(`/api/scim/users/${userId}`, { method: 'DELETE' });
-        const data = await res.json();
-        updateDebug(data);
-
-        if (data.success) {
-          alert('User deleted successfully');
-          refreshUsers();
-        } else {
-          alert('Failed to delete user. Check debug panel.');
-        }
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        alert('Error: ' + err.message);
-      }
-    }
-
-    document.getElementById('refresh-users').addEventListener('click', refreshUsers);
-
-    // Get Tokens
-    document.getElementById('get-tokens').addEventListener('click', async () => {
-      const btn = document.getElementById('get-tokens');
-      btn.disabled = true;
-      btn.textContent = 'Loading...';
-
+    document.getElementById('refreshTokens').onclick = async () => {
       try {
         const res = await fetch('/api/tokens');
         const data = await res.json();
-        updateDebug(data);
-        alert('Tokens fetched. Check debug panel for details.');
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        alert('Error: ' + err.message);
+        log(data);
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
+    };
 
-      btn.disabled = false;
-      btn.textContent = 'Get Tokens';
-    });
-
-    // Get REST Users
-    document.getElementById('get-rest-users').addEventListener('click', async () => {
-      const btn = document.getElementById('get-rest-users');
-      btn.disabled = true;
-      btn.textContent = 'Loading...';
-
-      try {
-        const res = await fetch('/api/rest/users');
-        const data = await res.json();
-        updateDebug(data);
-        alert('Users fetched via REST API. Check debug panel for details.');
-      } catch (err) {
-        updateDebug({ success: false, error: err.message });
-        alert('Error: ' + err.message);
-      }
-
-      btn.disabled = false;
-      btn.textContent = 'Get Users (REST)';
-    });
-
-    // Initialize
     checkStatus();
   </script>
 </body>
