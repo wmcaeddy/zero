@@ -52,7 +52,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>STA/SAS PCE API Demo</h1>
+    <h1>STA API Demo</h1>
     <p class="subtitle">SCIM User Registration & MobilePASS+ Token Provisioning</p>
 
     <div id="status" class="status">Checking API status...</div>
@@ -113,11 +113,6 @@
           </div>
           <button type="submit">Provision Token</button>
         </form>
-      </div>
-
-      <div class="card">
-        <h2>Tokens <span class="badge badge-rest">REST</span></h2>
-        <button id="refreshTokens" class="secondary">Get Tokens</button>
       </div>
     </div>
 
@@ -332,15 +327,16 @@
 
     document.getElementById('refreshUsers').onclick = loadUsers;
 
-    document.getElementById('refreshTokens').onclick = async () => {
-      try {
-        const res = await fetch('/api/tokens');
-        const data = await res.json();
-        log(data);
-      } catch (e) {
-        alert('Error: ' + e.message);
-      }
-    };
+    // Tokens section commented out
+    // document.getElementById('refreshTokens').onclick = async () => {
+    //   try {
+    //     const res = await fetch('/api/tokens');
+    //     const data = await res.json();
+    //     log(data);
+    //   } catch (e) {
+    //     alert('Error: ' + e.message);
+    //   }
+    // };
 
     checkStatus();
   </script>
