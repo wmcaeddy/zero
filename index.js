@@ -618,19 +618,36 @@ app.get('/api/sas/users', async (req, res) => {
   const pageSize = parseInt(req.query.pageSize) || 5;
   const forceRefresh = req.query.refresh === 'true';
 
+  // Track debug info
+  let debugInfo = {
+    request: null,
+    response: null
+  };
+
   // First, authenticate with SAS
   const authResult = await connectSAS();
   if (!authResult.success) {
     return res.json({
       success: false,
       error: 'SAS authentication failed',
-      authError: authResult.error
+      authError: authResult.error,
+      debug: {
+        request: {
+          method: 'POST',
+          url: SAS_URL,
+          soapAction: 'Connect',
+          note: 'Authentication failed before GetUsers call'
+        }
+      }
     });
   }
 
   // Check if we need to refresh the user list cache
   const cacheExpired = Date.now() - sasUsersCache.timestamp > SAS_CACHE_TTL;
+  let fetchedFromCache = true;
+
   if (forceRefresh || cacheExpired || sasUsersCache.users.length === 0) {
+    fetchedFromCache = false;
     // Build SOAP envelope for GetUsers
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -668,6 +685,31 @@ app.get('/api/sas/users', async (req, res) => {
       const responseText = await response.text();
       const parsed = parseDataTableResponse(responseText);
 
+      // Store debug info
+      debugInfo = {
+        request: {
+          method: 'POST',
+          url: SAS_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'GetUsers',
+          contentType: 'SOAP/XML',
+          soapEnvelope: maskSoapEnvelope(soapEnvelope),
+          parameters: {
+            organization: SAS_ORGANIZATION,
+            authMethod: 'Any',
+            pageSize: 1000
+          }
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          },
+          usersFound: parsed.users?.length || 0
+        }
+      };
+
       // Store basic user list in cache
       sasUsersCache = {
         users: parsed.users || [],
@@ -677,6 +719,19 @@ app.get('/api/sas/users', async (req, res) => {
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
+  } else {
+    // Data from cache
+    debugInfo = {
+      request: {
+        method: 'CACHE',
+        note: 'User list retrieved from server cache',
+        cacheAge: `${Math.round((Date.now() - sasUsersCache.timestamp) / 1000)} seconds`,
+        cacheTTL: `${SAS_CACHE_TTL / 1000} seconds`
+      },
+      response: {
+        cachedUsers: sasUsersCache.users.length
+      }
+    };
   }
 
   // Calculate pagination
@@ -710,6 +765,15 @@ app.get('/api/sas/users', async (req, res) => {
       totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1
+    },
+    debug: {
+      ...debugInfo,
+      detailsFetched: {
+        method: 'POST',
+        soapAction: 'GetUser',
+        note: `Fetched individual details for ${usersWithDetails.length} users on this page`,
+        url: SAS_URL
+      }
     }
   });
 });
