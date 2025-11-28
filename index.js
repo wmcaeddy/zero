@@ -604,11 +604,19 @@ async function processInBatches(items, batchSize, processor) {
   return results;
 }
 
-// SAS: List Users
+// Cache for SAS users list (to enable pagination without re-fetching)
+let sasUsersCache = { users: [], timestamp: 0, cookie: null };
+const SAS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// SAS: List Users with pagination
 app.get('/api/sas/users', async (req, res) => {
   if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
     return res.status(500).json({ error: 'SAS API not configured' });
   }
+
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 5;
+  const forceRefresh = req.query.refresh === 'true';
 
   // First, authenticate with SAS
   const authResult = await connectSAS();
@@ -616,13 +624,15 @@ app.get('/api/sas/users', async (req, res) => {
     return res.json({
       success: false,
       error: 'SAS authentication failed',
-      authError: authResult.error,
-      debug: authResult
+      authError: authResult.error
     });
   }
 
-  // Build SOAP envelope for GetUsers
-  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+  // Check if we need to refresh the user list cache
+  const cacheExpired = Date.now() - sasUsersCache.timestamp > SAS_CACHE_TTL;
+  if (forceRefresh || cacheExpired || sasUsersCache.users.length === 0) {
+    // Build SOAP envelope for GetUsers
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -639,28 +649,46 @@ app.get('/api/sas/users', async (req, res) => {
   </soap:Body>
 </soap:Envelope>`;
 
-  try {
-    const headers = {
-      'Content-Type': 'text/xml; charset=utf-8',
-      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
-    };
+    try {
+      const headers = {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
+      };
 
-    if (authResult.cookie) {
-      headers['Cookie'] = authResult.cookie;
+      if (authResult.cookie) {
+        headers['Cookie'] = authResult.cookie;
+      }
+
+      const response = await fetch(SAS_URL, {
+        method: 'POST',
+        headers: headers,
+        body: soapEnvelope
+      });
+
+      const responseText = await response.text();
+      const parsed = parseDataTableResponse(responseText);
+
+      // Store basic user list in cache
+      sasUsersCache = {
+        users: parsed.users || [],
+        timestamp: Date.now(),
+        cookie: authResult.cookie
+      };
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
+  }
 
-    const response = await fetch(SAS_URL, {
-      method: 'POST',
-      headers: headers,
-      body: soapEnvelope
-    });
+  // Calculate pagination
+  const totalUsers = sasUsersCache.users.length;
+  const totalPages = Math.ceil(totalUsers / pageSize);
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalUsers);
+  const pageUsers = sasUsersCache.users.slice(startIndex, endIndex);
 
-    const responseText = await response.text();
-    const parsed = parseDataTableResponse(responseText);
-
-    // Fetch detailed info (including email) for each user in batches of 5
-    const users = parsed.users || [];
-    const usersWithDetails = await processInBatches(users, 5, async (user) => {
+  // Fetch detailed info only for users on this page
+  const usersWithDetails = await Promise.all(
+    pageUsers.map(async (user) => {
       const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
       return {
         ...user,
@@ -669,34 +697,21 @@ app.get('/api/sas/users', async (req, res) => {
         firstname: details.firstname || user.firstname || '',
         lastname: details.lastname || user.lastname || ''
       };
-    });
+    })
+  );
 
-    res.json({
-      success: response.ok,
-      status: response.status,
-      authenticated: authResult.cached ? 'cached_session' : 'new_session',
-      users: usersWithDetails,
-      totalCount: usersWithDetails.length,
-      debug: {
-        request: {
-          method: 'POST',
-          url: SAS_URL,
-          headers: maskSensitiveHeaders(headers),
-          soapAction: 'GetUsers',
-          organization: SAS_ORGANIZATION
-        },
-        response: {
-          status: response.status,
-          statusText: response.statusText,
-          headers: {
-            'content-type': response.headers.get('content-type')
-          }
-        }
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({
+    success: true,
+    users: usersWithDetails,
+    pagination: {
+      page,
+      pageSize,
+      totalUsers,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1
+    }
+  });
 });
 
 // SAS: Get Containers (to help find correct organization structure)

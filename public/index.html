@@ -61,6 +61,8 @@
     .lang-selector { display: flex; align-items: center; gap: 8px; }
     .lang-selector label { font-size: 0.85rem; color: #666; margin: 0; }
     .lang-selector select { width: auto; padding: 6px 10px; font-size: 0.85rem; border-radius: 4px; cursor: pointer; }
+    .pagination { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+    .page-info { font-size: 0.9rem; color: #666; min-width: 60px; text-align: center; }
   </style>
 </head>
 <body>
@@ -115,6 +117,11 @@
         <button id="createSelectedInSta" class="primary" style="margin-left: 10px;" data-i18n="createInSta">Create Selected in STA</button>
         <div id="sasUserList" class="user-list">
           <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
+        </div>
+        <div id="sasPagination" class="pagination" style="display: none;">
+          <button id="sasPrevPage" class="secondary" style="width: auto; padding: 8px 16px;">&lt; <span data-i18n="prev">Prev</span></button>
+          <span id="sasPageInfo" class="page-info">1 / 1</span>
+          <button id="sasNextPage" class="secondary" style="width: auto; padding: 8px 16px;"><span data-i18n="next">Next</span> &gt;</button>
         </div>
       </div>
 
@@ -357,44 +364,102 @@
 
     // SAS Users functions
     let selectedSasUsers = [];
+    let sasCurrentPage = 1;
+    let sasTotalPages = 1;
+    let sasPageCache = {}; // Cache for prefetched pages
 
-    async function loadSasUsers() {
+    function renderSasUsers(users) {
       const list = document.getElementById('sasUserList');
+      if (users.length === 0) {
+        list.innerHTML = '<div class="loading">' + t('noUsers') + '</div>';
+      } else {
+        list.innerHTML = users.map(u => {
+          const userId = u.username || u.userid || '';
+          const firstName = u.firstname || '';
+          const lastName = u.lastname || '';
+          const email = u.email || '';
+          const authMethod = u.authmethod || '';
+          const displayName = (firstName + ' ' + lastName).trim() || userId;
+          const isSelected = selectedSasUsers.some(su => su.username === userId);
+          return `
+          <div class="user-item-sas">
+            <input type="checkbox" class="user-checkbox"
+              data-username="${userId}"
+              data-email="${email}"
+              data-firstname="${firstName}"
+              data-lastname="${lastName}"
+              ${isSelected ? 'checked' : ''}
+              onchange="toggleSasUser(this)">
+            <div class="user-info">
+              <div class="user-name">${displayName}</div>
+              <div class="user-id">${t('idLabel')}${userId}</div>
+              ${firstName ? `<div class="user-id">${t('firstName')}: ${firstName}</div>` : ''}
+              ${lastName ? `<div class="user-id">${t('lastName')}: ${lastName}</div>` : ''}
+              ${email ? `<div class="user-id">${t('emailLabel')}${email}</div>` : ''}
+              ${authMethod ? `<div class="user-id">Auth: ${authMethod}</div>` : ''}
+            </div>
+          </div>
+        `;}).join('');
+      }
+    }
+
+    function updateSasPagination(pagination) {
+      const paginationEl = document.getElementById('sasPagination');
+      const pageInfo = document.getElementById('sasPageInfo');
+      const prevBtn = document.getElementById('sasPrevPage');
+      const nextBtn = document.getElementById('sasNextPage');
+
+      sasCurrentPage = pagination.page;
+      sasTotalPages = pagination.totalPages;
+
+      pageInfo.textContent = `${pagination.page} / ${pagination.totalPages}`;
+      prevBtn.disabled = !pagination.hasPrevPage;
+      nextBtn.disabled = !pagination.hasNextPage;
+      paginationEl.style.display = pagination.totalPages > 1 ? 'flex' : 'none';
+    }
+
+    async function prefetchNextPage() {
+      const nextPage = sasCurrentPage + 1;
+      if (nextPage <= sasTotalPages && !sasPageCache[nextPage]) {
+        try {
+          const res = await fetch(`/api/sas/users?page=${nextPage}&pageSize=5`);
+          const data = await res.json();
+          if (data.success) {
+            sasPageCache[nextPage] = data;
+          }
+        } catch (e) {
+          console.log('Prefetch failed:', e);
+        }
+      }
+    }
+
+    async function loadSasUsers(page = 1, forceRefresh = false) {
+      const list = document.getElementById('sasUserList');
+
+      // Check cache first (unless force refresh)
+      if (!forceRefresh && sasPageCache[page]) {
+        const cachedData = sasPageCache[page];
+        renderSasUsers(cachedData.users);
+        updateSasPagination(cachedData.pagination);
+        log(cachedData);
+        prefetchNextPage();
+        return;
+      }
+
       list.innerHTML = '<div class="loading">' + t('loading') + '</div>';
-      selectedSasUsers = [];
+
       try {
-        const res = await fetch('/api/sas/users');
+        const refreshParam = forceRefresh ? '&refresh=true' : '';
+        const res = await fetch(`/api/sas/users?page=${page}&pageSize=5${refreshParam}`);
         const data = await res.json();
         log(data);
+
         if (data.success && data.users) {
-          if (data.users.length === 0) {
-            list.innerHTML = '<div class="loading">' + t('noUsers') + '</div>';
-          } else {
-            list.innerHTML = data.users.map(u => {
-              const userId = u.username || u.userid || '';
-              const firstName = u.firstname || '';
-              const lastName = u.lastname || '';
-              const email = u.email || '';
-              const authMethod = u.authmethod || '';
-              const displayName = (firstName + ' ' + lastName).trim() || userId;
-              return `
-              <div class="user-item-sas">
-                <input type="checkbox" class="user-checkbox"
-                  data-username="${userId}"
-                  data-email="${email}"
-                  data-firstname="${firstName}"
-                  data-lastname="${lastName}"
-                  onchange="toggleSasUser(this)">
-                <div class="user-info">
-                  <div class="user-name">${displayName}</div>
-                  <div class="user-id">${t('idLabel')}${userId}</div>
-                  ${firstName ? `<div class="user-id">${t('firstName')}: ${firstName}</div>` : ''}
-                  ${lastName ? `<div class="user-id">${t('lastName')}: ${lastName}</div>` : ''}
-                  ${email ? `<div class="user-id">${t('emailLabel')}${email}</div>` : ''}
-                  ${authMethod ? `<div class="user-id">Auth: ${authMethod}</div>` : ''}
-                </div>
-              </div>
-            `;}).join('');
+          sasPageCache[page] = data; // Cache the result
+          renderSasUsers(data.users);
+          if (data.pagination) {
+            updateSasPagination(data.pagination);
+            prefetchNextPage(); // Prefetch next page in background
           }
         } else {
           list.innerHTML = '<div class="loading">' + t('failedToLoad') + (data.error ? ': ' + data.error : '') + '</div>';
@@ -456,12 +521,19 @@
       alert(t('usersCreatedResult').replace('{success}', successCount).replace('{fail}', failCount));
       selectedSasUsers = [];
       loadUsers();
-      loadSasUsers();
+      sasPageCache = {}; // Clear cache to get fresh data
+      loadSasUsers(sasCurrentPage, true);
       btn.disabled = false;
     }
 
-    document.getElementById('refreshSasUsers').onclick = loadSasUsers;
+    document.getElementById('refreshSasUsers').onclick = () => {
+      sasPageCache = {}; // Clear cache on refresh
+      selectedSasUsers = []; // Clear selections
+      loadSasUsers(1, true);
+    };
     document.getElementById('createSelectedInSta').onclick = createSelectedInSta;
+    document.getElementById('sasPrevPage').onclick = () => loadSasUsers(sasCurrentPage - 1);
+    document.getElementById('sasNextPage').onclick = () => loadSasUsers(sasCurrentPage + 1);
 
     document.getElementById('createUserForm').onsubmit = async (e) => {
       e.preventDefault();
