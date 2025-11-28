@@ -633,32 +633,65 @@ async function fetchUserDetails(users, cookie) {
   });
 }
 
-// Fetch remaining user details in background (after first page is served)
-async function fetchRemainingDetailsInBackground(cookie, startIndex) {
+// Fetch full user list and all details in background
+async function fetchFullUserListInBackground(cookie) {
   if (sasUsersCache.fetchingInProgress) return;
   sasUsersCache.fetchingInProgress = true;
 
-  const remainingUsers = sasUsersCache.users.slice(startIndex);
-  if (remainingUsers.length === 0) {
-    sasUsersCache.detailsFetched = true;
-    sasUsersCache.fetchingInProgress = false;
-    return;
-  }
-
-  console.log(`Background: Fetching details for remaining ${remainingUsers.length} users...`);
+  console.log('Background: Fetching full user list...');
   const startTime = Date.now();
 
-  const remainingWithDetails = await fetchUserDetails(remainingUsers, cookie);
+  try {
+    // Fetch full user list
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUsers xmlns="http://www.cryptocard.com/blackshield/">
+      <userName></userName>
+      <lastName></lastName>
+      <authMethod>Any</authMethod>
+      <container></container>
+      <firstRecord>0</firstRecord>
+      <pageSize>1000</pageSize>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUsers>
+  </soap:Body>
+</soap:Envelope>`;
 
-  // Merge with existing cached details
-  sasUsersCache.usersWithDetails = [
-    ...sasUsersCache.usersWithDetails.slice(0, startIndex),
-    ...remainingWithDetails
-  ];
-  sasUsersCache.detailsFetched = true;
-  sasUsersCache.fetchingInProgress = false;
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
+    };
+    if (cookie) headers['Cookie'] = cookie;
 
-  console.log(`Background: ${remainingUsers.length} users fetched in ${Date.now() - startTime}ms. Total cached: ${sasUsersCache.usersWithDetails.length}`);
+    const response = await fetch(SAS_URL, { method: 'POST', headers, body: soapEnvelope });
+    const responseText = await response.text();
+    const parsed = parseDataTableResponse(responseText);
+
+    // Update cache with full user list
+    sasUsersCache.users = parsed.users || [];
+    console.log(`Background: Got ${sasUsersCache.users.length} users, now fetching details...`);
+
+    // Keep first page details we already have
+    const existingDetails = sasUsersCache.usersWithDetails;
+
+    // Fetch details for remaining users (skip ones we already have)
+    const remainingUsers = sasUsersCache.users.slice(existingDetails.length);
+    if (remainingUsers.length > 0) {
+      const remainingDetails = await fetchUserDetails(remainingUsers, cookie);
+      sasUsersCache.usersWithDetails = [...existingDetails, ...remainingDetails];
+    }
+
+    sasUsersCache.detailsFetched = true;
+    sasUsersCache.fetchingInProgress = false;
+
+    console.log(`Background: Complete! ${sasUsersCache.usersWithDetails.length} users cached in ${Date.now() - startTime}ms`);
+  } catch (err) {
+    console.log(`Background fetch failed: ${err.message}`);
+    sasUsersCache.fetchingInProgress = false;
+  }
 }
 
 // SAS: List Users with pagination (instant from cache after first load)
@@ -692,7 +725,7 @@ app.get('/api/sas/users', async (req, res) => {
   const needsRefresh = forceRefresh || cacheExpired || sasUsersCache.users.length === 0;
 
   if (needsRefresh) {
-    // Fetch basic user list first (fast)
+    // Fetch ONLY first page of users (fast - just 5 users)
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -704,7 +737,7 @@ app.get('/api/sas/users', async (req, res) => {
       <authMethod>Any</authMethod>
       <container></container>
       <firstRecord>0</firstRecord>
-      <pageSize>1000</pageSize>
+      <pageSize>${pageSize}</pageSize>
       <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
     </GetUsers>
   </soap:Body>
@@ -721,7 +754,7 @@ app.get('/api/sas/users', async (req, res) => {
       const responseText = await response.text();
       const parsed = parseDataTableResponse(responseText);
 
-      // Reset cache with new basic user list
+      // Reset cache with first page only
       sasUsersCache = {
         users: parsed.users || [],
         usersWithDetails: [],
@@ -735,18 +768,17 @@ app.get('/api/sas/users', async (req, res) => {
         request: {
           method: 'POST', url: SAS_URL, soapAction: 'GetUsers',
           headers: maskSensitiveHeaders(headers),
-          parameters: { organization: SAS_ORGANIZATION, authMethod: 'Any' }
+          parameters: { organization: SAS_ORGANIZATION, authMethod: 'Any', pageSize: pageSize, note: 'First page only for fast display' }
         },
         response: { status: response.status, usersFound: parsed.users?.length || 0 }
       };
 
-      // Fetch ONLY first page details (fast - only 5 users)
-      const firstPageUsers = sasUsersCache.users.slice(0, pageSize);
-      const firstPageWithDetails = await fetchUserDetails(firstPageUsers, authResult.cookie);
+      // Fetch details for first page users (fast - only 5 users)
+      const firstPageWithDetails = await fetchUserDetails(sasUsersCache.users, authResult.cookie);
       sasUsersCache.usersWithDetails = firstPageWithDetails;
 
-      // Start background fetch for remaining users (non-blocking)
-      fetchRemainingDetailsInBackground(authResult.cookie, pageSize);
+      // Start background fetch for FULL user list and remaining details (non-blocking)
+      fetchFullUserListInBackground(authResult.cookie);
 
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -763,9 +795,9 @@ app.get('/api/sas/users', async (req, res) => {
     };
   }
 
-  // Calculate pagination from basic user list
+  // Calculate pagination
   const totalUsers = sasUsersCache.users.length;
-  const totalPages = Math.ceil(totalUsers / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));
   const startIndex = (page - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, totalUsers);
 
@@ -778,19 +810,26 @@ app.get('/api/sas/users', async (req, res) => {
     pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
     debugInfo.pageSource = 'cache (instant)';
   } else if (startIndex < cachedDetailsCount) {
-    // Partial page from cache, fetch rest
+    // Partial page from cache, need to fetch rest
     const cachedPart = sasUsersCache.usersWithDetails.slice(startIndex);
     const uncachedUsers = sasUsersCache.users.slice(cachedDetailsCount, endIndex);
-    const fetchedPart = await fetchUserDetails(uncachedUsers, authResult.cookie);
-    pageUsers = [...cachedPart, ...fetchedPart];
-    // Update cache with newly fetched details
-    sasUsersCache.usersWithDetails = [...sasUsersCache.usersWithDetails, ...fetchedPart];
+    if (uncachedUsers.length > 0) {
+      const fetchedPart = await fetchUserDetails(uncachedUsers, authResult.cookie);
+      pageUsers = [...cachedPart, ...fetchedPart];
+      sasUsersCache.usersWithDetails = [...sasUsersCache.usersWithDetails, ...fetchedPart];
+    } else {
+      pageUsers = cachedPart;
+    }
     debugInfo.pageSource = 'partial cache + fetch';
-  } else {
-    // Page not in cache, fetch on-demand
+  } else if (startIndex < totalUsers) {
+    // Page not in cache but within known users, fetch on-demand
     const uncachedUsers = sasUsersCache.users.slice(startIndex, endIndex);
     pageUsers = await fetchUserDetails(uncachedUsers, authResult.cookie);
     debugInfo.pageSource = 'on-demand fetch';
+  } else {
+    // Page beyond current known users (background still fetching)
+    pageUsers = [];
+    debugInfo.pageSource = 'waiting for background fetch';
   }
 
   res.json({
@@ -798,7 +837,7 @@ app.get('/api/sas/users', async (req, res) => {
     users: pageUsers,
     pagination: {
       page, pageSize, totalUsers, totalPages,
-      hasNextPage: page < totalPages,
+      hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true, // Allow next if still fetching
       hasPrevPage: page > 1
     },
     debug: {
@@ -808,7 +847,9 @@ app.get('/api/sas/users', async (req, res) => {
         detailsCached: sasUsersCache.usersWithDetails.length,
         totalUsers: sasUsersCache.users.length,
         backgroundFetching: sasUsersCache.fetchingInProgress,
-        note: sasUsersCache.detailsFetched ? 'All pages instant' : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached`
+        note: sasUsersCache.detailsFetched
+          ? `All ${totalUsers} users cached - all pages instant`
+          : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached, background fetching...`
       }
     }
   });
