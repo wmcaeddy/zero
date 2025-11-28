@@ -63,6 +63,8 @@
     .lang-selector select { width: auto; padding: 6px 10px; font-size: 0.85rem; border-radius: 4px; cursor: pointer; }
     .pagination { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
     .page-info { font-size: 0.9rem; color: #666; min-width: 60px; text-align: center; }
+    .button-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    .button-row button { flex: 1; margin: 0; }
   </style>
 </head>
 <body>
@@ -113,8 +115,10 @@
 
       <div class="card">
         <h2><span data-i18n="sasUsers">SAS Users</span> <span class="badge badge-sas">SAS</span></h2>
-        <button id="refreshSasUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
-        <button id="createSelectedInSta" class="primary" style="margin-left: 10px;" data-i18n="createInSta">Create Selected in STA</button>
+        <div class="button-row">
+          <button id="refreshSasUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
+          <button id="createSelectedInSta" class="primary" data-i18n="createInSta">Create Selected in STA</button>
+        </div>
         <div id="sasUserList" class="user-list">
           <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
         </div>
