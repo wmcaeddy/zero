@@ -795,7 +795,81 @@ app.get('/api/sas/users', async (req, res) => {
 
   // Track debug info
   let debugInfo = { request: null, response: null };
+  let loadedFromDisk = false;
 
+  // INSTANT PATH: Check memory cache first (no network calls)
+  if (sasUsersCache.usersWithDetails.length > 0 && !forceRefresh) {
+    const totalUsers = sasUsersCache.users.length;
+    const totalPages = Math.ceil(totalUsers / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalUsers);
+    const pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+
+    return res.json({
+      success: true,
+      users: pageUsers,
+      pagination: {
+        page, pageSize, totalUsers, totalPages,
+        hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true,
+        hasPrevPage: page > 1
+      },
+      debug: {
+        request: { method: 'MEMORY_CACHE', note: 'Instant from memory cache' },
+        response: { cachedUsers: sasUsersCache.usersWithDetails.length },
+        cacheStatus: {
+          detailsFetched: sasUsersCache.detailsFetched,
+          detailsCached: sasUsersCache.usersWithDetails.length,
+          totalUsers: totalUsers,
+          backgroundFetching: sasUsersCache.fetchingInProgress,
+          persistentStorage: isPersistentStorageAvailable(),
+          loadedFromDisk: false,
+          note: `Memory cache - instant!`
+        }
+      }
+    });
+  }
+
+  // INSTANT PATH: Check disk cache second (fast I/O, no network)
+  if (sasUsersCache.users.length === 0 && !forceRefresh) {
+    loadedFromDisk = loadSasCacheFromDisk();
+    if (loadedFromDisk && sasUsersCache.usersWithDetails.length > 0) {
+      const totalUsers = sasUsersCache.users.length;
+      const totalPages = Math.ceil(totalUsers / pageSize);
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = Math.min(startIndex + pageSize, totalUsers);
+      const pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+
+      return res.json({
+        success: true,
+        users: pageUsers,
+        pagination: {
+          page, pageSize, totalUsers, totalPages,
+          hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true,
+          hasPrevPage: page > 1
+        },
+        debug: {
+          request: {
+            method: 'DISK_CACHE',
+            note: 'Instant from disk cache',
+            cacheFile: SAS_CACHE_FILE,
+            cacheAge: Math.round((Date.now() - sasUsersCache.timestamp) / 1000) + 's'
+          },
+          response: { cachedUsers: sasUsersCache.usersWithDetails.length },
+          cacheStatus: {
+            detailsFetched: sasUsersCache.detailsFetched,
+            detailsCached: sasUsersCache.usersWithDetails.length,
+            totalUsers: totalUsers,
+            backgroundFetching: false,
+            persistentStorage: true,
+            loadedFromDisk: true,
+            note: `Disk cache - instant!`
+          }
+        }
+      });
+    }
+  }
+
+  // SLOW PATH: Need to fetch from API (only when no cache or forceRefresh)
   // First, authenticate with SAS
   const authResult = await connectSAS();
   if (!authResult.success) {
@@ -809,25 +883,7 @@ app.get('/api/sas/users', async (req, res) => {
     });
   }
 
-  // Try to load from disk cache if memory cache is empty
-  let loadedFromDisk = false;
-  if (sasUsersCache.users.length === 0 && !forceRefresh) {
-    loadedFromDisk = loadSasCacheFromDisk();
-    if (loadedFromDisk) {
-      debugInfo = {
-        request: {
-          method: 'DISK_CACHE',
-          note: 'User data loaded from persistent storage (instant)',
-          cacheFile: SAS_CACHE_FILE,
-          cacheAge: Math.round((Date.now() - sasUsersCache.timestamp) / 1000) + 's'
-        },
-        response: { cachedUsers: sasUsersCache.usersWithDetails.length }
-      };
-    }
-  }
-
   // Only refresh if explicitly requested or no cache at all
-  // Disk cache has no TTL - persists until user clicks Refresh
   const needsRefresh = forceRefresh || sasUsersCache.users.length === 0;
 
   if (needsRefresh) {
