@@ -92,12 +92,8 @@ function loadSasCacheFromDisk() {
       return false;
     }
 
-    // Check if cache is still valid (within TTL)
+    // Disk cache has no TTL - persists until explicit refresh
     const cacheAge = Date.now() - cacheData.timestamp;
-    if (cacheAge > SAS_CACHE_TTL) {
-      console.log(`SAS disk cache expired (${Math.round(cacheAge / 1000)}s old)`);
-      return false;
-    }
 
     // Restore cache
     sasUsersCache.users = cacheData.users || [];
@@ -814,23 +810,25 @@ app.get('/api/sas/users', async (req, res) => {
   }
 
   // Try to load from disk cache if memory cache is empty
+  let loadedFromDisk = false;
   if (sasUsersCache.users.length === 0 && !forceRefresh) {
-    const loadedFromDisk = loadSasCacheFromDisk();
+    loadedFromDisk = loadSasCacheFromDisk();
     if (loadedFromDisk) {
       debugInfo = {
         request: {
           method: 'DISK_CACHE',
-          note: 'User data loaded from persistent storage',
-          cacheFile: SAS_CACHE_FILE
+          note: 'User data loaded from persistent storage (instant)',
+          cacheFile: SAS_CACHE_FILE,
+          cacheAge: Math.round((Date.now() - sasUsersCache.timestamp) / 1000) + 's'
         },
         response: { cachedUsers: sasUsersCache.usersWithDetails.length }
       };
     }
   }
 
-  // Check if cache is valid and has full details
-  const cacheExpired = Date.now() - sasUsersCache.timestamp > SAS_CACHE_TTL;
-  const needsRefresh = forceRefresh || cacheExpired || sasUsersCache.users.length === 0;
+  // Only refresh if explicitly requested or no cache at all
+  // Disk cache has no TTL - persists until user clicks Refresh
+  const needsRefresh = forceRefresh || sasUsersCache.users.length === 0;
 
   if (needsRefresh) {
     // Fetch ONLY first page of users (fast - just 5 users)
@@ -956,9 +954,12 @@ app.get('/api/sas/users', async (req, res) => {
         totalUsers: sasUsersCache.users.length,
         backgroundFetching: sasUsersCache.fetchingInProgress,
         persistentStorage: isPersistentStorageAvailable(),
-        note: sasUsersCache.detailsFetched
-          ? `All ${totalUsers} users cached - all pages instant`
-          : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached, background fetching...`
+        loadedFromDisk: loadedFromDisk,
+        note: loadedFromDisk
+          ? `Loaded from disk cache - instant!`
+          : sasUsersCache.detailsFetched
+            ? `All ${totalUsers} users cached - all pages instant`
+            : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached, background fetching...`
       }
     }
   });
