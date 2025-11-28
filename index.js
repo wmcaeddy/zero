@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,87 @@ let bsidcaSessionExpiry = null;
 // SAS session management
 let sasSessionCookie = null;
 let sasSessionExpiry = null;
+
+// Persistent storage configuration
+const PERSISTENT_DATA_PATH = '/app/data';
+const SAS_CACHE_FILE = path.join(PERSISTENT_DATA_PATH, 'sas_users_cache.json');
+
+// Check if persistent storage is available
+function isPersistentStorageAvailable() {
+  try {
+    if (fs.existsSync(PERSISTENT_DATA_PATH)) {
+      // Test write access
+      const testFile = path.join(PERSISTENT_DATA_PATH, '.write_test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.log('Persistent storage not available:', err.message);
+    return false;
+  }
+}
+
+// Save SAS cache to persistent storage
+function saveSasCacheToDisk() {
+  if (!isPersistentStorageAvailable()) return false;
+
+  try {
+    const cacheData = {
+      users: sasUsersCache.users,
+      usersWithDetails: sasUsersCache.usersWithDetails,
+      timestamp: sasUsersCache.timestamp,
+      detailsFetched: sasUsersCache.detailsFetched,
+      organization: SAS_ORGANIZATION
+    };
+    fs.writeFileSync(SAS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    console.log(`SAS cache saved to disk: ${sasUsersCache.usersWithDetails.length} users`);
+    return true;
+  } catch (err) {
+    console.log('Failed to save SAS cache to disk:', err.message);
+    return false;
+  }
+}
+
+// Load SAS cache from persistent storage
+function loadSasCacheFromDisk() {
+  if (!isPersistentStorageAvailable()) return false;
+
+  try {
+    if (!fs.existsSync(SAS_CACHE_FILE)) {
+      console.log('No SAS cache file found on disk');
+      return false;
+    }
+
+    const cacheData = JSON.parse(fs.readFileSync(SAS_CACHE_FILE, 'utf8'));
+
+    // Validate cache is for same organization
+    if (cacheData.organization !== SAS_ORGANIZATION) {
+      console.log('SAS cache is for different organization, ignoring');
+      return false;
+    }
+
+    // Check if cache is still valid (within TTL)
+    const cacheAge = Date.now() - cacheData.timestamp;
+    if (cacheAge > SAS_CACHE_TTL) {
+      console.log(`SAS disk cache expired (${Math.round(cacheAge / 1000)}s old)`);
+      return false;
+    }
+
+    // Restore cache
+    sasUsersCache.users = cacheData.users || [];
+    sasUsersCache.usersWithDetails = cacheData.usersWithDetails || [];
+    sasUsersCache.timestamp = cacheData.timestamp;
+    sasUsersCache.detailsFetched = cacheData.detailsFetched || false;
+
+    console.log(`SAS cache loaded from disk: ${sasUsersCache.usersWithDetails.length} users (${Math.round(cacheAge / 1000)}s old)`);
+    return true;
+  } catch (err) {
+    console.log('Failed to load SAS cache from disk:', err.message);
+    return false;
+  }
+}
 
 // Middleware
 app.use(express.json());
@@ -349,6 +431,7 @@ async function connectBSIDCA() {
 
 // Health check / status endpoint
 app.get('/api/status', (req, res) => {
+  const persistentAvailable = isPersistentStorageAvailable();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -370,6 +453,13 @@ app.get('/api/status', (req, res) => {
       sas_user: SAS_USER ? 'SET' : 'NOT SET',
       sas_password: SAS_PASSWORD ? 'SET' : 'NOT SET',
       sas_organization: SAS_ORGANIZATION ? 'SET' : 'NOT SET'
+    },
+    persistentStorage: {
+      available: persistentAvailable,
+      path: PERSISTENT_DATA_PATH,
+      cacheFile: persistentAvailable ? SAS_CACHE_FILE : 'N/A',
+      sasCacheLoaded: sasUsersCache.users.length > 0,
+      sasCachedUsers: sasUsersCache.usersWithDetails.length
     },
     note: 'Token provisioning requires BSIDCA SOAP API credentials (operator login)'
   });
@@ -688,6 +778,9 @@ async function fetchFullUserListInBackground(cookie) {
     sasUsersCache.fetchingInProgress = false;
 
     console.log(`Background: Complete! ${sasUsersCache.usersWithDetails.length} users cached in ${Date.now() - startTime}ms`);
+
+    // Save to persistent storage if available
+    saveSasCacheToDisk();
   } catch (err) {
     console.log(`Background fetch failed: ${err.message}`);
     sasUsersCache.fetchingInProgress = false;
@@ -718,6 +811,21 @@ app.get('/api/sas/users', async (req, res) => {
         request: { method: 'POST', url: SAS_URL, soapAction: 'Connect', note: 'Authentication failed' }
       }
     });
+  }
+
+  // Try to load from disk cache if memory cache is empty
+  if (sasUsersCache.users.length === 0 && !forceRefresh) {
+    const loadedFromDisk = loadSasCacheFromDisk();
+    if (loadedFromDisk) {
+      debugInfo = {
+        request: {
+          method: 'DISK_CACHE',
+          note: 'User data loaded from persistent storage',
+          cacheFile: SAS_CACHE_FILE
+        },
+        response: { cachedUsers: sasUsersCache.usersWithDetails.length }
+      };
+    }
   }
 
   // Check if cache is valid and has full details
@@ -847,6 +955,7 @@ app.get('/api/sas/users', async (req, res) => {
         detailsCached: sasUsersCache.usersWithDetails.length,
         totalUsers: sasUsersCache.users.length,
         backgroundFetching: sasUsersCache.fetchingInProgress,
+        persistentStorage: isPersistentStorageAvailable(),
         note: sasUsersCache.detailsFetched
           ? `All ${totalUsers} users cached - all pages instant`
           : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached, background fetching...`
