@@ -616,18 +616,12 @@ async function processInBatches(items, batchSize, processor) {
 }
 
 // Cache for SAS users list WITH full details (for instant pagination)
-let sasUsersCache = { users: [], usersWithDetails: [], timestamp: 0, cookie: null, detailsFetched: false };
+let sasUsersCache = { users: [], usersWithDetails: [], timestamp: 0, cookie: null, detailsFetched: false, fetchingInProgress: false };
 const SAS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Fetch all user details in parallel batches and update cache
-async function fetchAllUserDetails(cookie) {
-  if (sasUsersCache.users.length === 0) return;
-
-  console.log(`Fetching details for ${sasUsersCache.users.length} users in background...`);
-  const startTime = Date.now();
-
-  // Process in batches of 3 for parallel requests (not too aggressive)
-  const usersWithDetails = await processInBatches(sasUsersCache.users, 3, async (user) => {
+// Fetch details for specific users
+async function fetchUserDetails(users, cookie) {
+  return await processInBatches(users, 3, async (user) => {
     const details = await getSasUserDetails(user.username || user.userid, cookie);
     return {
       ...user,
@@ -637,12 +631,34 @@ async function fetchAllUserDetails(cookie) {
       lastname: details.lastname || user.lastname || ''
     };
   });
+}
 
-  // Update cache with full details
-  sasUsersCache.usersWithDetails = usersWithDetails;
+// Fetch remaining user details in background (after first page is served)
+async function fetchRemainingDetailsInBackground(cookie, startIndex) {
+  if (sasUsersCache.fetchingInProgress) return;
+  sasUsersCache.fetchingInProgress = true;
+
+  const remainingUsers = sasUsersCache.users.slice(startIndex);
+  if (remainingUsers.length === 0) {
+    sasUsersCache.detailsFetched = true;
+    sasUsersCache.fetchingInProgress = false;
+    return;
+  }
+
+  console.log(`Background: Fetching details for remaining ${remainingUsers.length} users...`);
+  const startTime = Date.now();
+
+  const remainingWithDetails = await fetchUserDetails(remainingUsers, cookie);
+
+  // Merge with existing cached details
+  sasUsersCache.usersWithDetails = [
+    ...sasUsersCache.usersWithDetails.slice(0, startIndex),
+    ...remainingWithDetails
+  ];
   sasUsersCache.detailsFetched = true;
+  sasUsersCache.fetchingInProgress = false;
 
-  console.log(`All ${usersWithDetails.length} user details fetched in ${Date.now() - startTime}ms`);
+  console.log(`Background: ${remainingUsers.length} users fetched in ${Date.now() - startTime}ms. Total cached: ${sasUsersCache.usersWithDetails.length}`);
 }
 
 // SAS: List Users with pagination (instant from cache after first load)
@@ -711,7 +727,8 @@ app.get('/api/sas/users', async (req, res) => {
         usersWithDetails: [],
         timestamp: Date.now(),
         cookie: authResult.cookie,
-        detailsFetched: false
+        detailsFetched: false,
+        fetchingInProgress: false
       };
 
       debugInfo = {
@@ -723,8 +740,13 @@ app.get('/api/sas/users', async (req, res) => {
         response: { status: response.status, usersFound: parsed.users?.length || 0 }
       };
 
-      // Fetch ALL user details now (will be cached for instant pagination)
-      await fetchAllUserDetails(authResult.cookie);
+      // Fetch ONLY first page details (fast - only 5 users)
+      const firstPageUsers = sasUsersCache.users.slice(0, pageSize);
+      const firstPageWithDetails = await fetchUserDetails(firstPageUsers, authResult.cookie);
+      sasUsersCache.usersWithDetails = firstPageWithDetails;
+
+      // Start background fetch for remaining users (non-blocking)
+      fetchRemainingDetailsInBackground(authResult.cookie, pageSize);
 
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -741,13 +763,35 @@ app.get('/api/sas/users', async (req, res) => {
     };
   }
 
-  // Use cached data with full details for pagination
-  const sourceData = sasUsersCache.detailsFetched ? sasUsersCache.usersWithDetails : sasUsersCache.users;
-  const totalUsers = sourceData.length;
+  // Calculate pagination from basic user list
+  const totalUsers = sasUsersCache.users.length;
   const totalPages = Math.ceil(totalUsers / pageSize);
   const startIndex = (page - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, totalUsers);
-  const pageUsers = sourceData.slice(startIndex, endIndex);
+
+  // Check if we have cached details for this page
+  let pageUsers;
+  const cachedDetailsCount = sasUsersCache.usersWithDetails.length;
+
+  if (startIndex < cachedDetailsCount && endIndex <= cachedDetailsCount) {
+    // Full page available from cache - instant!
+    pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+    debugInfo.pageSource = 'cache (instant)';
+  } else if (startIndex < cachedDetailsCount) {
+    // Partial page from cache, fetch rest
+    const cachedPart = sasUsersCache.usersWithDetails.slice(startIndex);
+    const uncachedUsers = sasUsersCache.users.slice(cachedDetailsCount, endIndex);
+    const fetchedPart = await fetchUserDetails(uncachedUsers, authResult.cookie);
+    pageUsers = [...cachedPart, ...fetchedPart];
+    // Update cache with newly fetched details
+    sasUsersCache.usersWithDetails = [...sasUsersCache.usersWithDetails, ...fetchedPart];
+    debugInfo.pageSource = 'partial cache + fetch';
+  } else {
+    // Page not in cache, fetch on-demand
+    const uncachedUsers = sasUsersCache.users.slice(startIndex, endIndex);
+    pageUsers = await fetchUserDetails(uncachedUsers, authResult.cookie);
+    debugInfo.pageSource = 'on-demand fetch';
+  }
 
   res.json({
     success: true,
@@ -761,8 +805,10 @@ app.get('/api/sas/users', async (req, res) => {
       ...debugInfo,
       cacheStatus: {
         detailsFetched: sasUsersCache.detailsFetched,
-        totalCached: sasUsersCache.usersWithDetails.length,
-        note: sasUsersCache.detailsFetched ? 'All pages instant from cache' : 'Basic data only'
+        detailsCached: sasUsersCache.usersWithDetails.length,
+        totalUsers: sasUsersCache.users.length,
+        backgroundFetching: sasUsersCache.fetchingInProgress,
+        note: sasUsersCache.detailsFetched ? 'All pages instant' : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached`
       }
     }
   });
