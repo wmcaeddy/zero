@@ -539,7 +539,7 @@ function xmlEscape(str) {
     .replace(/'/g, '&apos;');
 }
 
-// SAS: Get single user details (includes email)
+// SAS: Get single user details (includes email) with timeout
 async function getSasUserDetails(userName, cookie) {
   const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -554,6 +554,9 @@ async function getSasUserDetails(userName, cookie) {
 </soap:Envelope>`;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     const headers = {
       'Content-Type': 'text/xml; charset=utf-8',
       'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUser'
@@ -565,9 +568,11 @@ async function getSasUserDetails(userName, cookie) {
     const response = await fetch(SAS_URL, {
       method: 'POST',
       headers: headers,
-      body: soapEnvelope
+      body: soapEnvelope,
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
     const responseText = await response.text();
 
     // Extract email and other fields from GetUserResult
@@ -583,8 +588,20 @@ async function getSasUserDetails(userName, cookie) {
       lastname: lastNameMatch ? lastNameMatch[1] : ''
     };
   } catch (err) {
+    console.log(`GetUser failed for ${userName}: ${err.message}`);
     return { email: '', mobile: '', firstname: '', lastname: '' };
   }
+}
+
+// Helper to process users in batches
+async function processInBatches(items, batchSize, processor) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 // SAS: List Users
@@ -641,19 +658,18 @@ app.get('/api/sas/users', async (req, res) => {
     const responseText = await response.text();
     const parsed = parseDataTableResponse(responseText);
 
-    // Fetch detailed info (including email) for each user
-    const usersWithDetails = await Promise.all(
-      (parsed.users || []).map(async (user) => {
-        const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
-        return {
-          ...user,
-          email: details.email || user.email || '',
-          mobile: details.mobile || user.mobile || '',
-          firstname: details.firstname || user.firstname || '',
-          lastname: details.lastname || user.lastname || ''
-        };
-      })
-    );
+    // Fetch detailed info (including email) for each user in batches of 5
+    const users = parsed.users || [];
+    const usersWithDetails = await processInBatches(users, 5, async (user) => {
+      const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
+      return {
+        ...user,
+        email: details.email || user.email || '',
+        mobile: details.mobile || user.mobile || '',
+        firstname: details.firstname || user.firstname || '',
+        lastname: details.lastname || user.lastname || ''
+      };
+    });
 
     res.json({
       success: response.ok,
