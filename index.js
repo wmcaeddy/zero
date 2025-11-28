@@ -594,6 +594,7 @@ app.get('/api/sas/users', async (req, res) => {
       authenticated: authResult.cached ? 'cached_session' : 'new_session',
       users: parsed.users || [],
       totalCount: parsed.users?.length || 0,
+      rawResponsePreview: responseText.substring(0, 2000),
       debug: {
         request: {
           method: 'POST',
@@ -610,6 +611,61 @@ app.get('/api/sas/users', async (req, res) => {
           }
         }
       }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SAS: Get Containers (to help find correct organization structure)
+app.get('/api/sas/containers', async (req, res) => {
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return res.status(500).json({ error: 'SAS API not configured' });
+  }
+
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'SAS authentication failed',
+      authError: authResult.error
+    });
+  }
+
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetContainers xmlns="http://www.cryptocard.com/blackshield/">
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetContainers>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetContainers'
+    };
+
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+
+    res.json({
+      success: response.ok,
+      status: response.status,
+      organization: SAS_ORGANIZATION,
+      rawResponse: responseText
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
