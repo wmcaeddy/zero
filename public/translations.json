@@ -47,7 +47,12 @@
     "userCreated": "ユーザーが作成されました！ ID: ",
     "seeDebug": "デバッグを参照",
     "provisioningFailed": "プロビジョニング失敗: ",
-    "tokenProvisioned": "トークンが発行されました！ 結果: "
+    "tokenProvisioned": "トークンが発行されました！ 結果: ",
+    "sasUsers": "SASユーザー",
+    "staUsers": "STAユーザー",
+    "createInSta": "選択をSTAに作成",
+    "noUsersSelected": "ユーザーが選択されていません",
+    "usersCreatedResult": "作成完了: {success}件成功、{fail}件失敗"
   },
   "en": {
     "langName": "English",
@@ -97,7 +102,12 @@
     "userCreated": "User created! ID: ",
     "seeDebug": "See debug",
     "provisioningFailed": "Provisioning failed: ",
-    "tokenProvisioned": "Token provisioned! Results: "
+    "tokenProvisioned": "Token provisioned! Results: ",
+    "sasUsers": "SAS Users",
+    "staUsers": "STA Users",
+    "createInSta": "Create Selected in STA",
+    "noUsersSelected": "No users selected",
+    "usersCreatedResult": "Created: {success} succeeded, {fail} failed"
   },
   "hi": {
     "langName": "हिन्दी",
@@ -147,7 +157,12 @@
     "userCreated": "उपयोगकर्ता बनाया गया! ID: ",
     "seeDebug": "डीबग देखें",
     "provisioningFailed": "प्रावधान विफल: ",
-    "tokenProvisioned": "टोकन प्रावधान किया गया! परिणाम: "
+    "tokenProvisioned": "टोकन प्रावधान किया गया! परिणाम: ",
+    "sasUsers": "SAS उपयोगकर्ता",
+    "staUsers": "STA उपयोगकर्ता",
+    "createInSta": "चयनित को STA में बनाएं",
+    "noUsersSelected": "कोई उपयोगकर्ता चयनित नहीं",
+    "usersCreatedResult": "बनाया गया: {success} सफल, {fail} विफल"
   },
   "th": {
     "langName": "ไทย",
@@ -197,7 +212,12 @@
     "userCreated": "สร้างผู้ใช้แล้ว! ID: ",
     "seeDebug": "ดูการดีบัก",
     "provisioningFailed": "การจัดสรรล้มเหลว: ",
-    "tokenProvisioned": "จัดสรรโทเค็นแล้ว! ผลลัพธ์: "
+    "tokenProvisioned": "จัดสรรโทเค็นแล้ว! ผลลัพธ์: ",
+    "sasUsers": "ผู้ใช้ SAS",
+    "staUsers": "ผู้ใช้ STA",
+    "createInSta": "สร้างที่เลือกใน STA",
+    "noUsersSelected": "ไม่ได้เลือกผู้ใช้",
+    "usersCreatedResult": "สร้างแล้ว: {success} สำเร็จ, {fail} ล้มเหลว"
   },
   "id": {
     "langName": "Indonesia",
@@ -247,7 +267,12 @@
     "userCreated": "Pengguna dibuat! ID: ",
     "seeDebug": "Lihat debug",
     "provisioningFailed": "Penyediaan gagal: ",
-    "tokenProvisioned": "Token disediakan! Hasil: "
+    "tokenProvisioned": "Token disediakan! Hasil: ",
+    "sasUsers": "Pengguna SAS",
+    "staUsers": "Pengguna STA",
+    "createInSta": "Buat yang Dipilih di STA",
+    "noUsersSelected": "Tidak ada pengguna yang dipilih",
+    "usersCreatedResult": "Dibuat: {success} berhasil, {fail} gagal"
   },
   "zh-CN": {
     "langName": "简体中文",
@@ -297,7 +322,12 @@
     "userCreated": "用户已创建！ID: ",
     "seeDebug": "查看调试",
     "provisioningFailed": "配置失败: ",
-    "tokenProvisioned": "令牌已配置！结果: "
+    "tokenProvisioned": "令牌已配置！结果: ",
+    "sasUsers": "SAS用户",
+    "staUsers": "STA用户",
+    "createInSta": "在STA中创建选中项",
+    "noUsersSelected": "未选择用户",
+    "usersCreatedResult": "创建完成: {success}个成功, {fail}个失败"
   },
   "zh-TW": {
     "langName": "繁體中文",
@@ -347,6 +377,11 @@
     "userCreated": "使用者已建立！ID: ",
     "seeDebug": "查看除錯",
     "provisioningFailed": "配置失敗: ",
-    "tokenProvisioned": "權杖已配置！結果: "
+    "tokenProvisioned": "權杖已配置！結果: ",
+    "sasUsers": "SAS使用者",
+    "staUsers": "STA使用者",
+    "createInSta": "在STA中建立選取項",
+    "noUsersSelected": "未選取使用者",
+    "usersCreatedResult": "建立完成: {success}個成功, {fail}個失敗"
   }
 }

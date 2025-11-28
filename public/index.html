@@ -20,6 +20,7 @@
     .badge-scim { background: #e3f2fd; color: #1565c0; }
     .badge-rest { background: #e8f5e9; color: #2e7d32; }
     .badge-bsidca { background: #fff3e0; color: #e65100; }
+    .badge-sas { background: #f3e5f5; color: #7b1fa2; }
     .form-group { margin-bottom: 12px; }
     label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; }
     input, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
@@ -48,6 +49,10 @@
     .user-actions { display: flex; gap: 5px; }
     .user-actions button { width: auto; padding: 5px 10px; font-size: 0.8rem; margin: 0; }
     .loading { text-align: center; padding: 20px; color: #666; }
+    .user-checkbox { margin-right: 10px; width: 18px; height: 18px; cursor: pointer; }
+    button.primary { background: #4caf50; }
+    button.primary:hover { background: #388e3c; }
+    button.primary:disabled { background: #ccc; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
     .header-left { flex: 1; }
     .lang-selector { display: flex; align-items: center; gap: 8px; }
@@ -102,7 +107,16 @@
       </div>
 
       <div class="card">
-        <h2><span data-i18n="users">Users</span> <span class="badge badge-scim">SCIM</span></h2>
+        <h2><span data-i18n="sasUsers">SAS Users</span> <span class="badge badge-sas">SAS</span></h2>
+        <button id="refreshSasUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
+        <button id="createSelectedInSta" class="primary" style="margin-left: 10px;" data-i18n="createInSta">Create Selected in STA</button>
+        <div id="sasUserList" class="user-list">
+          <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span data-i18n="users">STA Users</span> <span class="badge badge-scim">SCIM</span></h2>
         <button id="refreshUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
         <div id="userList" class="user-list">
           <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
@@ -337,6 +351,99 @@
         alert(t('statusError') + e.message);
       }
     }
+
+    // SAS Users functions
+    let selectedSasUsers = [];
+
+    async function loadSasUsers() {
+      const list = document.getElementById('sasUserList');
+      list.innerHTML = '<div class="loading">' + t('loading') + '</div>';
+      selectedSasUsers = [];
+      try {
+        const res = await fetch('/api/sas/users');
+        const data = await res.json();
+        log(data);
+        if (data.success && data.users) {
+          if (data.users.length === 0) {
+            list.innerHTML = '<div class="loading">' + t('noUsers') + '</div>';
+          } else {
+            list.innerHTML = data.users.map(u => `
+              <div class="user-item">
+                <input type="checkbox" class="user-checkbox" data-username="${u.username}" data-email="${u.email || ''}" data-firstname="${u.firstname || ''}" data-lastname="${u.lastname || ''}" onchange="toggleSasUser(this)">
+                <div class="user-info">
+                  <div class="user-name">${u.firstname || ''} ${u.lastname || ''}</div>
+                  <div class="user-id">${t('idLabel')}${u.username}</div>
+                  ${u.email ? `<div class="user-id">${t('emailLabel')}${u.email}</div>` : ''}
+                </div>
+              </div>
+            `).join('');
+          }
+        } else {
+          list.innerHTML = '<div class="loading">' + t('failedToLoad') + (data.error ? ': ' + data.error : '') + '</div>';
+        }
+      } catch (e) {
+        list.innerHTML = '<div class="loading">' + t('statusError') + e.message + '</div>';
+      }
+    }
+
+    function toggleSasUser(checkbox) {
+      const userData = {
+        username: checkbox.dataset.username,
+        email: checkbox.dataset.email,
+        firstname: checkbox.dataset.firstname,
+        lastname: checkbox.dataset.lastname
+      };
+      if (checkbox.checked) {
+        selectedSasUsers.push(userData);
+      } else {
+        selectedSasUsers = selectedSasUsers.filter(u => u.username !== userData.username);
+      }
+    }
+
+    async function createSelectedInSta() {
+      if (selectedSasUsers.length === 0) {
+        alert(t('noUsersSelected'));
+        return;
+      }
+
+      const btn = document.getElementById('createSelectedInSta');
+      btn.disabled = true;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const user of selectedSasUsers) {
+        try {
+          const res = await fetch('/api/scim/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: user.username,
+              email: user.email || user.username + '@placeholder.local',
+              givenName: user.firstname || user.username,
+              familyName: user.lastname || ''
+            })
+          });
+          const data = await res.json();
+          log(data);
+          if (data.success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (e) {
+          failCount++;
+        }
+      }
+
+      alert(t('usersCreatedResult').replace('{success}', successCount).replace('{fail}', failCount));
+      selectedSasUsers = [];
+      loadUsers();
+      loadSasUsers();
+      btn.disabled = false;
+    }
+
+    document.getElementById('refreshSasUsers').onclick = loadSasUsers;
+    document.getElementById('createSelectedInSta').onclick = createSelectedInSta;
 
     document.getElementById('createUserForm').onsubmit = async (e) => {
       e.preventDefault();

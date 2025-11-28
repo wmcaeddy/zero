@@ -17,9 +17,19 @@ const BSIDCA_USER = process.env.BSIDCA_User || '';    // Operator username
 const BSIDCA_PASSWORD = process.env.BSIDCA_Password || '';
 const ORGANIZATION = process.env.ORGANIZATION || '';
 
+// SAS (Local SafeNet Authentication Service) environment variables
+const SAS_URL = process.env.SAS_Endpoint_Url || '';
+const SAS_USER = process.env.SAS_User || '';
+const SAS_PASSWORD = process.env.SAS_Password || '';
+const SAS_ORGANIZATION = process.env.SAS_ORGANIZATION || '';
+
 // BSIDCA session management
 let bsidcaSessionCookie = null;
 let bsidcaSessionExpiry = null;
+
+// SAS session management
+let sasSessionCookie = null;
+let sasSessionExpiry = null;
 
 // Middleware
 app.use(express.json());
@@ -156,6 +166,106 @@ function parseSoapArrayResponse(xmlText, methodName, arrayElementName) {
   }
 }
 
+// Helper to parse DataTable XML response (used by GetUsers)
+function parseDataTableResponse(xmlText) {
+  try {
+    const users = [];
+
+    // Extract each row from the diffgram
+    const rowPattern = /<Table[^>]*>([\s\S]*?)<\/Table>/g;
+    let rowMatch;
+
+    while ((rowMatch = rowPattern.exec(xmlText)) !== null) {
+      const rowContent = rowMatch[1];
+      const user = {};
+
+      // Extract common user fields
+      const fields = ['UserName', 'FirstName', 'Lastname', 'Email', 'Mobile', 'Locked', 'ContainerName'];
+      fields.forEach(field => {
+        const fieldPattern = new RegExp(`<${field}>([^<]*)<\/${field}>`, 'i');
+        const fieldMatch = rowContent.match(fieldPattern);
+        if (fieldMatch) {
+          user[field.toLowerCase()] = fieldMatch[1];
+        }
+      });
+
+      if (user.username) {
+        users.push(user);
+      }
+    }
+
+    return { users, rawResponse: xmlText };
+  } catch (e) {
+    return { error: e.message, users: [], rawResponse: xmlText };
+  }
+}
+
+// SAS: Authenticate and establish session
+async function connectSAS() {
+  // Check if we have a valid session
+  if (sasSessionCookie && sasSessionExpiry && Date.now() < sasSessionExpiry) {
+    return { success: true, cookie: sasSessionCookie, cached: true };
+  }
+
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return { success: false, error: 'SAS credentials not configured (need SAS_Endpoint_Url, SAS_User, and SAS_Password)' };
+  }
+
+  // Build SOAP envelope for Connect
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <Connect xmlns="http://www.cryptocard.com/blackshield/">
+      <OperatorEmail>${xmlEscape(SAS_USER)}</OperatorEmail>
+      <OTP>${xmlEscape(SAS_PASSWORD)}</OTP>
+    </Connect>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+      },
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseSoapResponse(responseText, 'Connect');
+
+    // Extract session cookie from response headers
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      sasSessionCookie = setCookie.split(';')[0];
+      sasSessionExpiry = Date.now() + (20 * 60 * 1000); // Session valid for 20 minutes
+    }
+
+    const connectResult = parsed.parsed?.ConnectResult || 'UNKNOWN';
+
+    if (connectResult === 'AUTH_SUCCESS') {
+      return {
+        success: true,
+        cookie: sasSessionCookie,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    } else {
+      return {
+        success: false,
+        error: `Authentication failed: ${connectResult}`,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 // BSIDCA: Authenticate and establish session
 async function connectBSIDCA() {
   // Check if we have a valid session
@@ -239,17 +349,22 @@ app.get('/api/status', (req, res) => {
     timestamp: new Date().toISOString(),
     configured: {
       scim: !!(SCIM_API_URL && API_KEY),
-      bsidca: !!((BSIDCA_EMAIL || BSIDCA_USER) && BSIDCA_PASSWORD && ORGANIZATION)
+      bsidca: !!((BSIDCA_EMAIL || BSIDCA_USER) && BSIDCA_PASSWORD && ORGANIZATION),
+      sas: !!(SAS_URL && SAS_USER && SAS_PASSWORD && SAS_ORGANIZATION)
     },
     endpoints: {
       scim: SCIM_API_URL || 'NOT SET',
-      bsidca: BSIDCA_URL
+      bsidca: BSIDCA_URL,
+      sas: SAS_URL || 'NOT SET'
     },
     credentials: {
       bsidca_email: BSIDCA_EMAIL ? 'SET' : 'NOT SET',
       bsidca_user: BSIDCA_USER ? 'SET' : 'NOT SET',
       bsidca_password: BSIDCA_PASSWORD ? 'SET' : 'NOT SET',
-      organization: ORGANIZATION ? 'SET' : 'NOT SET'
+      organization: ORGANIZATION ? 'SET' : 'NOT SET',
+      sas_user: SAS_USER ? 'SET' : 'NOT SET',
+      sas_password: SAS_PASSWORD ? 'SET' : 'NOT SET',
+      sas_organization: SAS_ORGANIZATION ? 'SET' : 'NOT SET'
     },
     note: 'Token provisioning requires BSIDCA SOAP API credentials (operator login)'
   });
@@ -418,6 +533,88 @@ function xmlEscape(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
+
+// SAS: List Users
+app.get('/api/sas/users', async (req, res) => {
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return res.status(500).json({ error: 'SAS API not configured' });
+  }
+
+  // First, authenticate with SAS
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'SAS authentication failed',
+      authError: authResult.error,
+      debug: authResult
+    });
+  }
+
+  // Build SOAP envelope for GetUsers
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUsers xmlns="http://www.cryptocard.com/blackshield/">
+      <userName></userName>
+      <lastName></lastName>
+      <authMethod>Any</authMethod>
+      <container></container>
+      <firstRecord>0</firstRecord>
+      <pageSize>1000</pageSize>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUsers>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
+    };
+
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseDataTableResponse(responseText);
+
+    res.json({
+      success: response.ok,
+      status: response.status,
+      authenticated: authResult.cached ? 'cached_session' : 'new_session',
+      users: parsed.users || [],
+      totalCount: parsed.users?.length || 0,
+      debug: {
+        request: {
+          method: 'POST',
+          url: SAS_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'GetUsers',
+          organization: SAS_ORGANIZATION
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // BSIDCA SOAP: Provision Token (ProvisionUsers method)
 app.post('/api/tokens', async (req, res) => {
@@ -715,4 +912,8 @@ const server = app.listen(PORT, () => {
   console.log(`BSIDCA User: ${BSIDCA_USER ? 'SET' : 'NOT SET'}`);
   console.log(`BSIDCA Password: ${BSIDCA_PASSWORD ? 'SET' : 'NOT SET'}`);
   console.log(`Organization: ${ORGANIZATION ? 'SET' : 'NOT SET'}`);
+  console.log(`SAS Endpoint: ${SAS_URL || 'NOT SET'}`);
+  console.log(`SAS User: ${SAS_USER ? 'SET' : 'NOT SET'}`);
+  console.log(`SAS Password: ${SAS_PASSWORD ? 'SET' : 'NOT SET'}`);
+  console.log(`SAS Organization: ${SAS_ORGANIZATION ? 'SET' : 'NOT SET'}`);
 });
