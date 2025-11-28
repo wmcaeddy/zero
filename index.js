@@ -539,6 +539,54 @@ function xmlEscape(str) {
     .replace(/'/g, '&apos;');
 }
 
+// SAS: Get single user details (includes email)
+async function getSasUserDetails(userName, cookie) {
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUser xmlns="http://www.cryptocard.com/blackshield/">
+      <userName>${xmlEscape(userName)}</userName>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUser>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUser'
+    };
+    if (cookie) {
+      headers['Cookie'] = cookie;
+    }
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+
+    // Extract email and other fields from GetUserResult
+    const emailMatch = responseText.match(/<Email>([^<]*)<\/Email>/i);
+    const mobileMatch = responseText.match(/<Mobile>([^<]*)<\/Mobile>/i);
+    const firstNameMatch = responseText.match(/<FirstName>([^<]*)<\/FirstName>/i);
+    const lastNameMatch = responseText.match(/<Lastname>([^<]*)<\/Lastname>/i);
+
+    return {
+      email: emailMatch ? emailMatch[1] : '',
+      mobile: mobileMatch ? mobileMatch[1] : '',
+      firstname: firstNameMatch ? firstNameMatch[1] : '',
+      lastname: lastNameMatch ? lastNameMatch[1] : ''
+    };
+  } catch (err) {
+    return { email: '', mobile: '', firstname: '', lastname: '' };
+  }
+}
+
 // SAS: List Users
 app.get('/api/sas/users', async (req, res) => {
   if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
@@ -593,13 +641,26 @@ app.get('/api/sas/users', async (req, res) => {
     const responseText = await response.text();
     const parsed = parseDataTableResponse(responseText);
 
+    // Fetch detailed info (including email) for each user
+    const usersWithDetails = await Promise.all(
+      (parsed.users || []).map(async (user) => {
+        const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
+        return {
+          ...user,
+          email: details.email || user.email || '',
+          mobile: details.mobile || user.mobile || '',
+          firstname: details.firstname || user.firstname || '',
+          lastname: details.lastname || user.lastname || ''
+        };
+      })
+    );
+
     res.json({
       success: response.ok,
       status: response.status,
       authenticated: authResult.cached ? 'cached_session' : 'new_session',
-      users: parsed.users || [],
-      totalCount: parsed.users?.length || 0,
-      rawResponsePreview: responseText.substring(0, 2000),
+      users: usersWithDetails,
+      totalCount: usersWithDetails.length,
       debug: {
         request: {
           method: 'POST',
