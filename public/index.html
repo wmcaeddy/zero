@@ -416,10 +416,13 @@
       sasCurrentPage = pagination.page;
       sasTotalPages = pagination.totalPages;
 
-      pageInfo.textContent = `${pagination.page} / ${pagination.totalPages}`;
+      // Show "1 / ?" while background is fetching full list
+      const totalDisplay = pagination.totalPages === 1 && pagination.hasNextPage ? '?' : pagination.totalPages;
+      pageInfo.textContent = `${pagination.page} / ${totalDisplay}`;
       prevBtn.disabled = !pagination.hasPrevPage;
       nextBtn.disabled = !pagination.hasNextPage;
-      paginationEl.style.display = pagination.totalPages > 1 ? 'flex' : 'none';
+      // Show pagination if there's a next page OR more than 1 page
+      paginationEl.style.display = (pagination.hasNextPage || pagination.hasPrevPage || pagination.totalPages > 1) ? 'flex' : 'none';
     }
 
     async function loadSasUsers(page = 1, forceRefresh = false) {
