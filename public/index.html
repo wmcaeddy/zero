@@ -422,37 +422,15 @@
       paginationEl.style.display = pagination.totalPages > 1 ? 'flex' : 'none';
     }
 
-    async function prefetchPages() {
-      // Prefetch next 2 pages for smoother navigation
-      const pagesToPrefetch = [sasCurrentPage + 1, sasCurrentPage + 2];
-
-      for (const nextPage of pagesToPrefetch) {
-        if (nextPage <= sasTotalPages && !sasPageCache[nextPage]) {
-          try {
-            console.log(`Prefetching page ${nextPage}...`);
-            const res = await fetch(`/api/sas/users?page=${nextPage}&pageSize=5`);
-            const data = await res.json();
-            if (data.success) {
-              sasPageCache[nextPage] = data;
-              console.log(`Page ${nextPage} prefetched and cached`);
-            }
-          } catch (e) {
-            console.log(`Prefetch page ${nextPage} failed:`, e);
-          }
-        }
-      }
-    }
-
     async function loadSasUsers(page = 1, forceRefresh = false) {
       const list = document.getElementById('sasUserList');
 
-      // Check cache first (unless force refresh)
+      // Check frontend cache first (for instant navigation without network)
       if (!forceRefresh && sasPageCache[page]) {
         const cachedData = sasPageCache[page];
         renderSasUsers(cachedData.users);
         updateSasPagination(cachedData.pagination);
-        log({...cachedData, _source: 'cache'});
-        prefetchPages(); // Prefetch next pages in background
+        log({...cachedData, _source: 'frontend-cache'});
         return;
       }
 
@@ -465,11 +443,12 @@
         log(data);
 
         if (data.success && data.users) {
-          sasPageCache[page] = data; // Cache the result
+          sasPageCache[page] = data; // Cache in frontend for instant re-access
           renderSasUsers(data.users);
           if (data.pagination) {
             updateSasPagination(data.pagination);
-            prefetchPages(); // Prefetch next 2 pages in background
+            // Pre-cache adjacent pages from server (already fast due to server cache)
+            prefetchAdjacentPages(page, data.pagination.totalPages);
           }
         } else {
           list.innerHTML = '<div class="loading">' + t('failedToLoad') + (data.error ? ': ' + data.error : '') + '</div>';
@@ -477,6 +456,25 @@
       } catch (e) {
         list.innerHTML = '<div class="loading">' + t('statusError') + e.message + '</div>';
       }
+    }
+
+    // Prefetch adjacent pages in background (server responds instantly from cache)
+    async function prefetchAdjacentPages(currentPage, totalPages) {
+      const pagesToFetch = [currentPage - 1, currentPage + 1, currentPage + 2].filter(
+        p => p >= 1 && p <= totalPages && !sasPageCache[p]
+      );
+
+      // Fetch all adjacent pages in parallel (server has full cache, so this is fast)
+      await Promise.all(pagesToFetch.map(async (p) => {
+        try {
+          const res = await fetch(`/api/sas/users?page=${p}&pageSize=5`);
+          const data = await res.json();
+          if (data.success) {
+            sasPageCache[p] = data;
+            console.log(`Page ${p} cached`);
+          }
+        } catch (e) { /* ignore prefetch errors */ }
+      }));
     }
 
     function toggleSasUser(checkbox) {

@@ -615,11 +615,37 @@ async function processInBatches(items, batchSize, processor) {
   return results;
 }
 
-// Cache for SAS users list (to enable pagination without re-fetching)
-let sasUsersCache = { users: [], timestamp: 0, cookie: null };
+// Cache for SAS users list WITH full details (for instant pagination)
+let sasUsersCache = { users: [], usersWithDetails: [], timestamp: 0, cookie: null, detailsFetched: false };
 const SAS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// SAS: List Users with pagination
+// Fetch all user details in parallel batches and update cache
+async function fetchAllUserDetails(cookie) {
+  if (sasUsersCache.users.length === 0) return;
+
+  console.log(`Fetching details for ${sasUsersCache.users.length} users in background...`);
+  const startTime = Date.now();
+
+  // Process in batches of 3 for parallel requests (not too aggressive)
+  const usersWithDetails = await processInBatches(sasUsersCache.users, 3, async (user) => {
+    const details = await getSasUserDetails(user.username || user.userid, cookie);
+    return {
+      ...user,
+      email: details.email || user.email || '',
+      mobile: details.mobile || user.mobile || '',
+      firstname: details.firstname || user.firstname || '',
+      lastname: details.lastname || user.lastname || ''
+    };
+  });
+
+  // Update cache with full details
+  sasUsersCache.usersWithDetails = usersWithDetails;
+  sasUsersCache.detailsFetched = true;
+
+  console.log(`All ${usersWithDetails.length} user details fetched in ${Date.now() - startTime}ms`);
+}
+
+// SAS: List Users with pagination (instant from cache after first load)
 app.get('/api/sas/users', async (req, res) => {
   if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
     return res.status(500).json({ error: 'SAS API not configured' });
@@ -630,10 +656,7 @@ app.get('/api/sas/users', async (req, res) => {
   const forceRefresh = req.query.refresh === 'true';
 
   // Track debug info
-  let debugInfo = {
-    request: null,
-    response: null
-  };
+  let debugInfo = { request: null, response: null };
 
   // First, authenticate with SAS
   const authResult = await connectSAS();
@@ -643,23 +666,17 @@ app.get('/api/sas/users', async (req, res) => {
       error: 'SAS authentication failed',
       authError: authResult.error,
       debug: {
-        request: {
-          method: 'POST',
-          url: SAS_URL,
-          soapAction: 'Connect',
-          note: 'Authentication failed before GetUsers call'
-        }
+        request: { method: 'POST', url: SAS_URL, soapAction: 'Connect', note: 'Authentication failed' }
       }
     });
   }
 
-  // Check if we need to refresh the user list cache
+  // Check if cache is valid and has full details
   const cacheExpired = Date.now() - sasUsersCache.timestamp > SAS_CACHE_TTL;
-  let fetchedFromCache = true;
+  const needsRefresh = forceRefresh || cacheExpired || sasUsersCache.users.length === 0;
 
-  if (forceRefresh || cacheExpired || sasUsersCache.users.length === 0) {
-    fetchedFromCache = false;
-    // Build SOAP envelope for GetUsers
+  if (needsRefresh) {
+    // Fetch basic user list first (fast)
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -682,107 +699,70 @@ app.get('/api/sas/users', async (req, res) => {
         'Content-Type': 'text/xml; charset=utf-8',
         'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
       };
+      if (authResult.cookie) headers['Cookie'] = authResult.cookie;
 
-      if (authResult.cookie) {
-        headers['Cookie'] = authResult.cookie;
-      }
-
-      const response = await fetch(SAS_URL, {
-        method: 'POST',
-        headers: headers,
-        body: soapEnvelope
-      });
-
+      const response = await fetch(SAS_URL, { method: 'POST', headers, body: soapEnvelope });
       const responseText = await response.text();
       const parsed = parseDataTableResponse(responseText);
 
-      // Store debug info
-      debugInfo = {
-        request: {
-          method: 'POST',
-          url: SAS_URL,
-          headers: maskSensitiveHeaders(headers),
-          soapAction: 'GetUsers',
-          contentType: 'SOAP/XML',
-          soapEnvelope: maskSoapEnvelope(soapEnvelope),
-          parameters: {
-            organization: SAS_ORGANIZATION,
-            authMethod: 'Any',
-            pageSize: 1000
-          }
-        },
-        response: {
-          status: response.status,
-          statusText: response.statusText,
-          headers: {
-            'content-type': response.headers.get('content-type')
-          },
-          usersFound: parsed.users?.length || 0
-        }
-      };
-
-      // Store basic user list in cache
+      // Reset cache with new basic user list
       sasUsersCache = {
         users: parsed.users || [],
+        usersWithDetails: [],
         timestamp: Date.now(),
-        cookie: authResult.cookie
+        cookie: authResult.cookie,
+        detailsFetched: false
       };
+
+      debugInfo = {
+        request: {
+          method: 'POST', url: SAS_URL, soapAction: 'GetUsers',
+          headers: maskSensitiveHeaders(headers),
+          parameters: { organization: SAS_ORGANIZATION, authMethod: 'Any' }
+        },
+        response: { status: response.status, usersFound: parsed.users?.length || 0 }
+      };
+
+      // Fetch ALL user details now (will be cached for instant pagination)
+      await fetchAllUserDetails(authResult.cookie);
+
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
   } else {
-    // Data from cache
     debugInfo = {
       request: {
         method: 'CACHE',
-        note: 'User list retrieved from server cache',
-        cacheAge: `${Math.round((Date.now() - sasUsersCache.timestamp) / 1000)} seconds`,
-        cacheTTL: `${SAS_CACHE_TTL / 1000} seconds`
+        note: 'Full user data served from cache (instant)',
+        cacheAge: `${Math.round((Date.now() - sasUsersCache.timestamp) / 1000)}s`,
+        detailsCached: sasUsersCache.detailsFetched
       },
-      response: {
-        cachedUsers: sasUsersCache.users.length
-      }
+      response: { cachedUsers: sasUsersCache.usersWithDetails.length }
     };
   }
 
-  // Calculate pagination
-  const totalUsers = sasUsersCache.users.length;
+  // Use cached data with full details for pagination
+  const sourceData = sasUsersCache.detailsFetched ? sasUsersCache.usersWithDetails : sasUsersCache.users;
+  const totalUsers = sourceData.length;
   const totalPages = Math.ceil(totalUsers / pageSize);
   const startIndex = (page - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, totalUsers);
-  const pageUsers = sasUsersCache.users.slice(startIndex, endIndex);
-
-  // Fetch detailed info only for users on this page (sequentially to avoid overwhelming SAS)
-  const usersWithDetails = [];
-  for (const user of pageUsers) {
-    const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
-    usersWithDetails.push({
-      ...user,
-      email: details.email || user.email || '',
-      mobile: details.mobile || user.mobile || '',
-      firstname: details.firstname || user.firstname || '',
-      lastname: details.lastname || user.lastname || ''
-    });
-  }
+  const pageUsers = sourceData.slice(startIndex, endIndex);
 
   res.json({
     success: true,
-    users: usersWithDetails,
+    users: pageUsers,
     pagination: {
-      page,
-      pageSize,
-      totalUsers,
-      totalPages,
+      page, pageSize, totalUsers, totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1
     },
     debug: {
       ...debugInfo,
-      detailsFetched: {
-        method: 'POST',
-        soapAction: 'GetUser',
-        note: `Fetched individual details for ${usersWithDetails.length} users on this page`,
-        url: SAS_URL
+      cacheStatus: {
+        detailsFetched: sasUsersCache.detailsFetched,
+        totalCached: sasUsersCache.usersWithDetails.length,
+        note: sasUsersCache.detailsFetched ? 'All pages instant from cache' : 'Basic data only'
       }
     }
   });
