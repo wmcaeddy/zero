@@ -555,7 +555,7 @@ async function getSasUserDetails(userName, cookie) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
     const headers = {
       'Content-Type': 'text/xml; charset=utf-8',
@@ -576,17 +576,28 @@ async function getSasUserDetails(userName, cookie) {
     const responseText = await response.text();
 
     // Extract email and other fields from GetUserResult
-    const emailMatch = responseText.match(/<Email>([^<]*)<\/Email>/i);
-    const mobileMatch = responseText.match(/<Mobile>([^<]*)<\/Mobile>/i);
-    const firstNameMatch = responseText.match(/<FirstName>([^<]*)<\/FirstName>/i);
-    const lastNameMatch = responseText.match(/<Lastname>([^<]*)<\/Lastname>/i);
+    // Try multiple patterns for email field (different SAS versions may use different casing)
+    const emailMatch = responseText.match(/<Email>([^<]+)<\/Email>/i) ||
+                       responseText.match(/<email>([^<]+)<\/email>/i) ||
+                       responseText.match(/<EMAIL>([^<]+)<\/EMAIL>/);
+    const mobileMatch = responseText.match(/<Mobile>([^<]+)<\/Mobile>/i);
+    const firstNameMatch = responseText.match(/<FirstName>([^<]+)<\/FirstName>/i);
+    const lastNameMatch = responseText.match(/<Lastname>([^<]+)<\/Lastname>/i) ||
+                          responseText.match(/<LastName>([^<]+)<\/LastName>/i);
 
-    return {
+    const result = {
       email: emailMatch ? emailMatch[1] : '',
       mobile: mobileMatch ? mobileMatch[1] : '',
       firstname: firstNameMatch ? firstNameMatch[1] : '',
       lastname: lastNameMatch ? lastNameMatch[1] : ''
     };
+
+    // Log if we found email for debugging
+    if (result.email) {
+      console.log(`GetUser ${userName}: email=${result.email}`);
+    }
+
+    return result;
   } catch (err) {
     console.log(`GetUser failed for ${userName}: ${err.message}`);
     return { email: '', mobile: '', firstname: '', lastname: '' };
@@ -741,19 +752,18 @@ app.get('/api/sas/users', async (req, res) => {
   const endIndex = Math.min(startIndex + pageSize, totalUsers);
   const pageUsers = sasUsersCache.users.slice(startIndex, endIndex);
 
-  // Fetch detailed info only for users on this page
-  const usersWithDetails = await Promise.all(
-    pageUsers.map(async (user) => {
-      const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
-      return {
-        ...user,
-        email: details.email || user.email || '',
-        mobile: details.mobile || user.mobile || '',
-        firstname: details.firstname || user.firstname || '',
-        lastname: details.lastname || user.lastname || ''
-      };
-    })
-  );
+  // Fetch detailed info only for users on this page (sequentially to avoid overwhelming SAS)
+  const usersWithDetails = [];
+  for (const user of pageUsers) {
+    const details = await getSasUserDetails(user.username || user.userid, authResult.cookie);
+    usersWithDetails.push({
+      ...user,
+      email: details.email || user.email || '',
+      mobile: details.mobile || user.mobile || '',
+      firstname: details.firstname || user.firstname || '',
+      lastname: details.lastname || user.lastname || ''
+    });
+  }
 
   res.json({
     success: true,
