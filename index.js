@@ -171,16 +171,16 @@ function parseDataTableResponse(xmlText) {
   try {
     const users = [];
 
-    // Extract each row from the diffgram
-    const rowPattern = /<Table[^>]*>([\s\S]*?)<\/Table>/g;
+    // Extract each user row from the diffgram - can be <users> or <Table> elements
+    const rowPattern = /<users[^>]*>([\s\S]*?)<\/users>|<Table[^>]*>([\s\S]*?)<\/Table>/g;
     let rowMatch;
 
     while ((rowMatch = rowPattern.exec(xmlText)) !== null) {
-      const rowContent = rowMatch[1];
+      const rowContent = rowMatch[1] || rowMatch[2];
       const user = {};
 
-      // Extract common user fields
-      const fields = ['UserName', 'FirstName', 'Lastname', 'Email', 'Mobile', 'Locked', 'ContainerName'];
+      // Extract common user fields (case-insensitive)
+      const fields = ['userid', 'username', 'firstname', 'lastname', 'email', 'mobile', 'locked', 'container', 'containername', 'authmethod', 'authstate', 'accountStatus'];
       fields.forEach(field => {
         const fieldPattern = new RegExp(`<${field}>([^<]*)<\/${field}>`, 'i');
         const fieldMatch = rowContent.match(fieldPattern);
@@ -189,7 +189,12 @@ function parseDataTableResponse(xmlText) {
         }
       });
 
-      if (user.username) {
+      // Normalize: userid -> username if username not present
+      if (user.userid && !user.username) {
+        user.username = user.userid;
+      }
+
+      if (user.username || user.userid) {
         users.push(user);
       }
     }

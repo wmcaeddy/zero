@@ -369,11 +369,12 @@
           } else {
             list.innerHTML = data.users.map(u => `
               <div class="user-item">
-                <input type="checkbox" class="user-checkbox" data-username="${u.username}" data-email="${u.email || ''}" data-firstname="${u.firstname || ''}" data-lastname="${u.lastname || ''}" onchange="toggleSasUser(this)">
+                <input type="checkbox" class="user-checkbox" data-username="${u.username || u.userid}" data-email="${u.email || ''}" data-firstname="${u.firstname || ''}" data-lastname="${u.lastname || ''}" onchange="toggleSasUser(this)">
                 <div class="user-info">
                   <div class="user-name">${u.firstname || ''} ${u.lastname || ''}</div>
-                  <div class="user-id">${t('idLabel')}${u.username}</div>
+                  <div class="user-id">${t('idLabel')}${u.username || u.userid}</div>
                   ${u.email ? `<div class="user-id">${t('emailLabel')}${u.email}</div>` : ''}
+                  ${u.authmethod ? `<div class="user-id">Auth: ${u.authmethod}</div>` : ''}
                 </div>
               </div>
             `).join('');
