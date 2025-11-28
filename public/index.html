@@ -524,9 +524,11 @@
 
       alert(t('usersCreatedResult').replace('{success}', successCount).replace('{fail}', failCount));
       selectedSasUsers = [];
-      loadUsers();
-      sasPageCache = {}; // Clear cache to get fresh data
-      loadSasUsers(sasCurrentPage, true);
+      loadUsers(); // Refresh STA users to show newly created
+      // Re-render SAS list from cache with cleared checkboxes (no need to re-fetch)
+      if (sasPageCache[sasCurrentPage]) {
+        renderSasUsers(sasPageCache[sasCurrentPage].users);
+      }
       btn.disabled = false;
     }
 
