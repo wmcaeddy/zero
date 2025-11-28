@@ -49,7 +49,10 @@
     .user-actions { display: flex; gap: 5px; }
     .user-actions button { width: auto; padding: 5px 10px; font-size: 0.8rem; margin: 0; }
     .loading { text-align: center; padding: 20px; color: #666; }
-    .user-checkbox { margin-right: 10px; width: 18px; height: 18px; cursor: pointer; }
+    .user-checkbox { margin-right: 12px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; align-self: flex-start; margin-top: 4px; }
+    .user-item-sas { display: flex; align-items: flex-start; padding: 10px; border-bottom: 1px solid #eee; }
+    .user-item-sas:last-child { border-bottom: none; }
+    .user-item-sas .user-info { flex: 1; }
     button.primary { background: #4caf50; }
     button.primary:hover { background: #388e3c; }
     button.primary:disabled { background: #ccc; }
@@ -367,17 +370,31 @@
           if (data.users.length === 0) {
             list.innerHTML = '<div class="loading">' + t('noUsers') + '</div>';
           } else {
-            list.innerHTML = data.users.map(u => `
-              <div class="user-item">
-                <input type="checkbox" class="user-checkbox" data-username="${u.username || u.userid}" data-email="${u.email || ''}" data-firstname="${u.firstname || ''}" data-lastname="${u.lastname || ''}" onchange="toggleSasUser(this)">
+            list.innerHTML = data.users.map(u => {
+              const userId = u.username || u.userid || '';
+              const firstName = u.firstname || '';
+              const lastName = u.lastname || '';
+              const email = u.email || '';
+              const authMethod = u.authmethod || '';
+              const displayName = (firstName + ' ' + lastName).trim() || userId;
+              return `
+              <div class="user-item-sas">
+                <input type="checkbox" class="user-checkbox"
+                  data-username="${userId}"
+                  data-email="${email}"
+                  data-firstname="${firstName}"
+                  data-lastname="${lastName}"
+                  onchange="toggleSasUser(this)">
                 <div class="user-info">
-                  <div class="user-name">${u.firstname || ''} ${u.lastname || ''}</div>
-                  <div class="user-id">${t('idLabel')}${u.username || u.userid}</div>
-                  ${u.email ? `<div class="user-id">${t('emailLabel')}${u.email}</div>` : ''}
-                  ${u.authmethod ? `<div class="user-id">Auth: ${u.authmethod}</div>` : ''}
+                  <div class="user-name">${displayName}</div>
+                  <div class="user-id">${t('idLabel')}${userId}</div>
+                  ${firstName ? `<div class="user-id">${t('firstName')}: ${firstName}</div>` : ''}
+                  ${lastName ? `<div class="user-id">${t('lastName')}: ${lastName}</div>` : ''}
+                  ${email ? `<div class="user-id">${t('emailLabel')}${email}</div>` : ''}
+                  ${authMethod ? `<div class="user-id">Auth: ${authMethod}</div>` : ''}
                 </div>
               </div>
-            `).join('');
+            `;}).join('');
           }
         } else {
           list.innerHTML = '<div class="loading">' + t('failedToLoad') + (data.error ? ': ' + data.error : '') + '</div>';
