@@ -1,0 +1,25 @@
+[Unit]
+Description=fwknop Single Packet Authorization Server
+Documentation=https://www.cipherdyne.org/fwknop/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/fwknopd --test
+ExecStart=/usr/sbin/fwknopd --foreground --verbose
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log/fwknop /var/run/fwknop /etc/fwknop
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

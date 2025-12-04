@@ -1,0 +1,25 @@
+[Unit]
+Description=Zero-SPA Sample Protected Application
+Documentation=https://github.com/yourusername/zero
+After=network-online.target fwknop.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/zero-spa/server/sample-app
+Environment="PORT=8080"
+Environment="HOST=0.0.0.0"
+ExecStart=/usr/bin/python3 /opt/zero-spa/server/sample-app/app.py
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,101 @@
+#
+# Zero-SPA fwknop Client Configuration
+# ~/.fwknoprc
+#
+# This file contains connection profiles for fwknop SPA authentication.
+# Copy this file to ~/.fwknoprc and update with your keys.
+#
+# SECURITY: This file should be readable only by you (chmod 600)
+#
+
+##############################################################################
+# Default Settings
+# Applied to all stanzas unless overridden
+##############################################################################
+
+[default]
+# Digest algorithm for SPA packet
+DIGEST_TYPE             sha256
+
+# Default firewall timeout (seconds)
+FW_TIMEOUT              30
+
+# SPA server port (default UDP port)
+SPA_SERVER_PORT         62201
+
+# SPA protocol
+SPA_SERVER_PROTO        udp
+
+# Use HMAC authentication
+USE_HMAC                Y
+
+##############################################################################
+# Server: 192.168.2.19
+# Protected services: Sample App (8080)
+##############################################################################
+
+[192.168.2.19]
+# Ports to request access to
+ACCESS                  tcp/8080
+
+# Allow auto-resolution of external IP
+# Set to specific IP if needed: ALLOW_IP 1.2.3.4
+ALLOW_IP                resolve
+
+# SPA server address
+SPA_SERVER              192.168.2.19
+
+# Encryption key (Rijndael/AES) - Base64 encoded
+# REPLACE WITH YOUR KEY from server's generated-keys.env
+KEY_BASE64              __REPLACE_WITH_SPA_KEY__
+
+# HMAC authentication key - Base64 encoded
+# REPLACE WITH YOUR KEY from server's generated-keys.env
+HMAC_KEY_BASE64         __REPLACE_WITH_HMAC_KEY__
+
+# Use HMAC for packet authentication
+USE_HMAC                Y
+
+# Firewall timeout (must match server's FW_ACCESS_TIMEOUT)
+FW_TIMEOUT              30
+
+##############################################################################
+# Example: Development Server
+##############################################################################
+
+#[dev-server]
+#ACCESS                  tcp/22,tcp/3000,tcp/5000
+#ALLOW_IP                resolve
+#SPA_SERVER              dev.example.com
+#KEY_BASE64              your_key_here
+#HMAC_KEY_BASE64         your_hmac_key_here
+#USE_HMAC                Y
+#FW_TIMEOUT              60
+
+##############################################################################
+# Example: Production with GnuPG
+##############################################################################
+
+#[prod-server]
+#ACCESS                  tcp/22
+#ALLOW_IP                resolve
+#SPA_SERVER              prod.example.com
+#USE_GPG_AGENT           Y
+#GPG_RECIPIENT           SERVER_GPG_KEY_ID
+#GPG_SIGNER              YOUR_GPG_KEY_ID
+#HMAC_KEY_BASE64         your_hmac_key_here
+#USE_HMAC                Y
+#FW_TIMEOUT              30
+
+##############################################################################
+# Example: NAT Traversal (access internal host through gateway)
+##############################################################################
+
+#[internal-host]
+#ACCESS                  tcp/22
+#ALLOW_IP                resolve
+#SPA_SERVER              gateway.example.com
+#NAT_ACCESS              10.0.0.100:22
+#KEY_BASE64              your_key_here
+#HMAC_KEY_BASE64         your_hmac_key_here
+#USE_HMAC                Y
