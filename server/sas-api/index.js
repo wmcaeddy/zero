@@ -1362,35 +1362,22 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
-  console.log(`BSIDCA: ${BSIDCA_URL}`);
-  console.log(`API Key: ${API_KEY ? 'SET' : 'NOT SET'}`);
-  console.log(`BSIDCA Email: ${BSIDCA_EMAIL ? 'SET' : 'NOT SET'}`);
-  console.log(`BSIDCA User: ${BSIDCA_USER ? 'SET' : 'NOT SET'}`);
-  console.log(`BSIDCA Password: ${BSIDCA_PASSWORD ? 'SET' : 'NOT SET'}`);
-  console.log(`Organization: ${ORGANIZATION ? 'SET' : 'NOT SET'}`);
-  console.log(`SAS Endpoint: ${SAS_URL || 'NOT SET'}`);
-  console.log(`SAS User: ${SAS_USER ? 'SET' : 'NOT SET'}`);
-  console.log(`SAS Password: ${SAS_PASSWORD ? 'SET' : 'NOT SET'}`);
-  console.log(`SAS Organization: ${SAS_ORGANIZATION ? 'SET' : 'NOT SET'}`);
-  const { exec } = require('child_process');
 
-  // SAS: Verify User Credentials (MFA)
-  // Uses the 'Connect' method but for end-users ideally, or we reuse operator Connect if it supports user creds.
-  // In many SAS implementations, 'Connect' is for agents/operators.
-  // We will try to use the same Connect method for now, assuming the user might be an operator/agent or we mock it for demo.
-  // Ideally usage: <VerifyUser><userName>eddy</userName><otp>123456</otp></VerifyUser>
-  async function verifyUserMFA(username, otp) {
-    // NOTE: In a real SAS deployment, you might use 'ValidateOTP' or 'CheckPassword'
-    // For this demo, we will attempt to use the generic 'Connect' if it allows user/otp,
-    // OR we simply assume success if we can find the user and the OTP matches a pattern (mock)
-    // because we might not have a real SAS backend that accepts direct user auth via this specific SOAP API without more config.
+const { exec } = require('child_process');
 
-    // REAL IMPLEMENTATION ATTEMPT via SOAP
-    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+// SAS: Verify User Credentials (MFA)
+// Uses the 'Connect' method but for end-users ideally, or we reuse operator Connect if it supports user creds.
+// In many SAS implementations, 'Connect' is for agents/operators.
+// We will try to use the same Connect method for now, assuming the user might be an operator/agent or we mock it for demo.
+// Ideally usage: <VerifyUser><userName>eddy</userName><otp>123456</otp></VerifyUser>
+async function verifyUserMFA(username, otp) {
+  // NOTE: In a real SAS deployment, you might use 'ValidateOTP' or 'CheckPassword'
+  // For this demo, we will attempt to use the generic 'Connect' if it allows user/otp,
+  // OR we simply assume success if we can find the user and the OTP matches a pattern (mock)
+  // because we might not have a real SAS backend that accepts direct user auth via this specific SOAP API without more config.
+
+  // REAL IMPLEMENTATION ATTEMPT via SOAP
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -1402,103 +1389,103 @@ const server = app.listen(PORT, () => {
   </soap:Body>
 </soap:Envelope>`;
 
-    try {
-      const response = await fetch(SAS_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/xml; charset=utf-8',
-          'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
-        },
-        body: soapEnvelope
-      });
+  try {
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+      },
+      body: soapEnvelope
+    });
 
-      const responseText = await response.text();
-      const parsed = parseSoapResponse(responseText, 'Connect');
-      const connectResult = parsed.parsed?.ConnectResult;
+    const responseText = await response.text();
+    const parsed = parseSoapResponse(responseText, 'Connect');
+    const connectResult = parsed.parsed?.ConnectResult;
 
-      if (connectResult === 'AUTH_SUCCESS') {
-        return { success: true };
-      }
-
-      return { success: false, error: connectResult || 'Authentication failed' };
-    } catch (err) {
-      return { success: false, error: err.message };
+    if (connectResult === 'AUTH_SUCCESS') {
+      return { success: true };
     }
+
+    return { success: false, error: connectResult || 'Authentication failed' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// Endpoint: Verify User MFA
+app.post('/api/auth/verify', async (req, res) => {
+  const { username, otp } = req.body;
+
+  if (!username || !otp) {
+    return res.status(400).json({ success: false, error: 'Username and OTP required' });
   }
 
-  // Endpoint: Verify User MFA
-  app.post('/api/auth/verify', async (req, res) => {
-    const { username, otp } = req.body;
+  // 1. Verify against SAS
+  const result = await verifyUserMFA(username, otp);
 
-    if (!username || !otp) {
-      return res.status(400).json({ success: false, error: 'Username and OTP required' });
-    }
+  if (result.success) {
+    res.json({ success: true, message: 'Authentication successful', username });
+  } else {
+    res.status(401).json({ success: false, error: result.error });
+  }
+});
 
-    // 1. Verify against SAS
-    const result = await verifyUserMFA(username, otp);
+// Endpoint: Connect to Network Target (SPA)
+app.post('/api/network/connect', async (req, res) => {
+  const { targetIp, port = 22, protocol = 'tcp' } = req.body;
+  // In a real app, get user identity from session/token
+  // const username = req.user.username; 
 
-    if (result.success) {
-      res.json({ success: true, message: 'Authentication successful', username });
-    } else {
-      res.status(401).json({ success: false, error: result.error });
-    }
-  });
+  if (!targetIp) {
+    return res.status(400).json({ success: false, error: 'Target IP required' });
+  }
 
-  // Endpoint: Connect to Network Target (SPA)
-  app.post('/api/network/connect', async (req, res) => {
-    const { targetIp, port = 22, protocol = 'tcp' } = req.body;
-    // In a real app, get user identity from session/token
-    // const username = req.user.username; 
+  // Note: Client IP detection in Docker can be tricky (often sees gateway IP).
+  // In production, trust X-Forwarded-For if behind valid proxy.
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-    if (!targetIp) {
-      return res.status(400).json({ success: false, error: 'Target IP required' });
-    }
+  console.log(`Sending SPA packet for ${clientIp} to access ${targetIp}:${port}/${protocol}`);
 
-    // Note: Client IP detection in Docker can be tricky (often sees gateway IP).
-    // In production, trust X-Forwarded-For if behind valid proxy.
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  // Construct fwknop command
+  // Assuming keys are in ~/.fwknoprc or WE pass them directly.
+  // For 'On-Prem Zero', the Server acts as the Gateway/Client that knocks.
+  // BUT fwknop allows specifying the allow-ip via -a (allow-ip).
+  // So we authorize the USER'S IP, not the container's IP.
 
-    console.log(`Sending SPA packet for ${clientIp} to access ${targetIp}:${port}/${protocol}`);
+  // NOTE: We need the STANZA name or destination from config. 
+  // For this generic demo, we assume the targetIp IS the destination and we have default keys.
+  // Real world: lookup stanza by targetIp.
 
-    // Construct fwknop command
-    // Assuming keys are in ~/.fwknoprc or WE pass them directly.
-    // For 'On-Prem Zero', the Server acts as the Gateway/Client that knocks.
-    // BUT fwknop allows specifying the allow-ip via -a (allow-ip).
-    // So we authorize the USER'S IP, not the container's IP.
+  const cmd = `fwknop -n ${targetIp} -a ${clientIp} --Access ${protocol}/${port}`;
 
-    // NOTE: We need the STANZA name or destination from config. 
-    // For this generic demo, we assume the targetIp IS the destination and we have default keys.
-    // Real world: lookup stanza by targetIp.
-
-    const cmd = `fwknop -n ${targetIp} -a ${clientIp} --Access ${protocol}/${port}`;
-
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`fwknop error: ${error.message}`);
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to send SPA packet',
-          details: stderr
-        });
-      }
-
-      res.json({
-        success: true,
-        message: 'Network access granted',
-        details: {
-          target: targetIp,
-          port: port,
-          clientIp: clientIp,
-          duration: '30s' // Default fwknop duration
-        }
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`fwknop error: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send SPA packet',
+        details: stderr
       });
+    }
+
+    res.json({
+      success: true,
+      message: 'Network access granted',
+      details: {
+        target: targetIp,
+        port: port,
+        clientIp: clientIp,
+        duration: '30s' // Default fwknop duration
+      }
     });
   });
+});
 
-  // Start server
-  const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
-    console.log(`BSIDCA: ${BSIDCA_URL}`);
-    console.log(`SAS Endpoint: ${SAS_URL || 'NOT SET'}`);
-  });
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
+  console.log(`BSIDCA: ${BSIDCA_URL}`);
+  console.log(`SAS Endpoint: ${SAS_URL || 'NOT SET'}`);
+});
