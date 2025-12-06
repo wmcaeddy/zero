@@ -1476,16 +1476,17 @@ async function verifyUserMFA(username, otp) {
   // OR we simply assume success if we can find the user and the OTP matches a pattern (mock)
   // because we might not have a real SAS backend that accepts direct user auth via this specific SOAP API without more config.
 
-  // REAL IMPLEMENTATION ATTEMPT via SOAP
+  // REAL IMPLEMENTATION ATTEMPT via SOAP (Authentication API)
+  // We use the standard 'CheckPassword' method common in SAS/BlackShield Agent APIs.
   const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <Connect xmlns="http://www.cryptocard.com/blackshield/">
-      <OperatorEmail>${xmlEscape(username)}</OperatorEmail>
-      <OTP>${xmlEscape(otp)}</OTP>
-    </Connect>
+    <CheckPassword xmlns="http://www.cryptocard.com/blackshield/">
+      <UserID>${xmlEscape(username)}</UserID>
+      <Password>${xmlEscape(otp)}</Password>
+    </CheckPassword>
   </soap:Body>
 </soap:Envelope>`;
 
@@ -1494,20 +1495,24 @@ async function verifyUserMFA(username, otp) {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/CheckPassword'
       },
       body: soapEnvelope
     });
 
     const responseText = await response.text();
-    const parsed = parseSoapResponse(responseText, 'Connect');
-    const connectResult = parsed.parsed?.ConnectResult;
+    console.log('SAS MFA Response:', responseText); // Debug log
 
-    if (connectResult === 'AUTH_SUCCESS') {
+    const parsed = parseSoapResponse(responseText, 'CheckPassword');
+    const result = parsed.parsed?.CheckPasswordResult;
+
+    // CheckPassword usually returns '1' for success, or 'ACCESS_ACCEPT', or 'AUTH_SUCCESS' depending on version.
+    // We'll check for common success indicators.
+    if (result === '1' || result === 1 || result === 'AUTH_SUCCESS' || result === 'ACCESS_ACCEPT') {
       return { success: true };
     }
 
-    return { success: false, error: connectResult || 'Authentication failed' };
+    return { success: false, error: 'Authentication failed (Result: ' + result + ')' };
   } catch (err) {
     return { success: false, error: err.message };
   }
