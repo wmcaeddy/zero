@@ -1497,25 +1497,23 @@ async function verifyUserMFA(username, otp) {
         'Content-Type': 'text/xml; charset=utf-8',
         'SOAPAction': 'http://www.cryptocard.com/blackshield/CheckPassword'
       },
-      body: soapEnvelope
-    });
+      const responseText = await response.text();
+      console.log('SAS MFA Response:', responseText); // Debug log
 
-    const responseText = await response.text();
-    console.log('SAS MFA Response:', responseText); // Debug log
+      // Robust extraction: ignore namespaces/attributes, look for CheckPasswordResult
+      const match = responseText.match(/:?CheckPasswordResult[^>]*>([^<]+)<\//i);
+      const result = match ? match[1] : null;
 
-    const parsed = parseSoapResponse(responseText, 'CheckPassword');
-    const result = parsed.parsed?.CheckPasswordResult;
-
-    // CheckPassword usually returns '1' for success, or 'ACCESS_ACCEPT', or 'AUTH_SUCCESS' depending on version.
-    // We'll check for common success indicators.
-    if (result === '1' || result === 1 || result === 'AUTH_SUCCESS' || result === 'ACCESS_ACCEPT') {
-      return { success: true };
-    }
+      // CheckPassword usually returns '1' for success, or 'ACCESS_ACCEPT', or 'AUTH_SUCCESS' depending on version.
+      // We'll check for common success indicators.
+      if(result === '1' || result === 1 || result === 'AUTH_SUCCESS' || result === 'ACCESS_ACCEPT') {
+        return { success: true };
+  }
 
     return { success: false, error: 'Authentication failed (Result: ' + result + ')' };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+} catch (err) {
+  return { success: false, error: err.message };
+}
 }
 
 // Endpoint: Verify User MFA
