@@ -74,6 +74,106 @@ function saveSasCacheToDisk() {
   }
 }
 
+// --- ZERO NETWORKS DATA STORE ---
+const DATA_DIR = path.join(__dirname, 'data');
+const ASSETS_FILE = path.join(DATA_DIR, 'assets.json');
+const POLICIES_FILE = path.join(DATA_DIR, 'policies.json');
+const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
+
+// Ensure data dir exists (redundant if mkdir run, but safe)
+if (!fs.existsSync(DATA_DIR)) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { }
+}
+
+// Helper to read/write JSON
+function readJson(file) {
+  try {
+    if (!fs.existsSync(file)) return [];
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) { return []; }
+}
+
+function writeJson(file, data) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    return true;
+  } catch (e) { return false; }
+}
+
+// API: Assets
+app.get('/api/assets', (req, res) => {
+  res.json({ success: true, data: readJson(ASSETS_FILE) });
+});
+
+app.post('/api/assets', (req, res) => {
+  const { name, ip, os } = req.body;
+  if (!name || !ip) return res.status(400).json({ success: false, error: 'Name and IP required' });
+
+  const assets = readJson(ASSETS_FILE);
+  const newAsset = { id: Date.now().toString(), name, ip, os: os || 'Linux', created: new Date() };
+  assets.push(newAsset);
+  writeJson(ASSETS_FILE, assets);
+
+  res.json({ success: true, data: newAsset });
+});
+
+app.delete('/api/assets/:id', (req, res) => {
+  const assets = readJson(ASSETS_FILE);
+  const filtered = assets.filter(a => a.id !== req.params.id);
+  writeJson(ASSETS_FILE, filtered);
+  res.json({ success: true });
+});
+
+// API: Policies
+app.get('/api/policies', (req, res) => {
+  res.json({ success: true, data: readJson(POLICIES_FILE) });
+});
+
+app.post('/api/policies', (req, res) => {
+  const { user, assetId, port, action } = req.body; // user can be email or '*'
+  if (!assetId || !port) return res.status(400).json({ success: false, error: 'Asset and Port required' });
+
+  const policies = readJson(POLICIES_FILE);
+  const newPolicy = {
+    id: Date.now().toString(),
+    user: user || '*',
+    assetId,
+    port: parseInt(port),
+    action: action || 'allow',
+    created: new Date()
+  };
+  policies.push(newPolicy);
+  writeJson(POLICIES_FILE, policies);
+
+  res.json({ success: true, data: newPolicy });
+});
+
+app.delete('/api/policies/:id', (req, res) => {
+  const policies = readJson(POLICIES_FILE);
+  const filtered = policies.filter(p => p.id !== req.params.id);
+  writeJson(POLICIES_FILE, filtered);
+  res.json({ success: true });
+});
+
+// Audit Helper
+function logAudit(user, action, details, success) {
+  const logs = readJson(AUDIT_FILE);
+  logs.unshift({
+    timestamp: new Date(),
+    user,
+    action,
+    details,
+    success
+  });
+  // Keep last 1000 logs
+  if (logs.length > 1000) logs.pop();
+  writeJson(AUDIT_FILE, logs);
+}
+
+app.get('/api/audit', (req, res) => {
+  res.json({ success: true, data: readJson(AUDIT_FILE) });
+});
+
 // Load SAS cache from persistent storage
 function loadSasCacheFromDisk() {
   if (!isPersistentStorageAvailable()) return false;
@@ -1430,33 +1530,57 @@ app.post('/api/auth/verify', async (req, res) => {
     res.status(401).json({ success: false, error: result.error });
   }
 });
+});
 
 // Endpoint: Connect to Network Target (SPA)
 app.post('/api/network/connect', async (req, res) => {
-  const { targetIp, port = 22, protocol = 'tcp' } = req.body;
-  // In a real app, get user identity from session/token
-  // const username = req.user.username; 
+  const { targetIp, port = 22, protocol = 'tcp', username } = req.body; // username injected if avail or passed
+  // In real implementation, username comes from session/JWT. 
+  // For this prototype, we trust the client or rely on previous "verifiedUser" state if we had session.
+  // We will accept 'username' in body for simplicity of prototype (Identity Segmentation).
+
+  const user = username || 'unknown';
 
   if (!targetIp) {
     return res.status(400).json({ success: false, error: 'Target IP required' });
   }
 
-  // Note: Client IP detection in Docker can be tricky (often sees gateway IP).
-  // In production, trust X-Forwarded-For if behind valid proxy.
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  // --- ZERO NETWORKS POLICY ENFORCEMENT ---
 
-  console.log(`Sending SPA packet for ${clientIp} to access ${targetIp}:${port}/${protocol}`);
+  // 1. Resolve Asset
+  const assets = readJson(ASSETS_FILE);
+  const policies = readJson(POLICIES_FILE);
+
+  // Find policies that might apply (User match or Wildcard)
+  const userPolicies = policies.filter(p => p.user === '*' || p.user === user);
+
+  let accessAllowed = false;
+  let policyName = 'Default Deny';
+
+  // Check if any policy allows this IP:Port
+  for (const p of userPolicies) {
+    const asset = assets.find(a => a.id === p.assetId);
+    if (asset && asset.ip === targetIp && p.port === parseInt(port)) {
+      if (p.action === 'allow') {
+        accessAllowed = true;
+        policyName = `Policy:${p.id} (User: ${p.user} -> ${asset.name})`;
+        break;
+      }
+    }
+  }
+
+  // 2. Audit Log (Learning Mode)
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  logAudit(user, 'CONNECT_ATTEMPT', `Target: ${targetIp}:${port} | Client: ${clientIp} | Result: ${accessAllowed ? 'ALLOWED' : 'BLOCKED'} via ${policyName} `, accessAllowed);
+
+  if (!accessAllowed) {
+    console.log(`Blocked access for ${user} to ${targetIp}:${port} (No Policy)`);
+    return res.status(403).json({ success: false, error: 'Access Denied by Identity Segmentation Policy' });
+  }
+
+  console.log(`Sending SPA packet for ${clientIp} to access ${targetIp}:${port}/${protocol} (Allowed by ${policyName})`);
 
   // Construct fwknop command
-  // Assuming keys are in ~/.fwknoprc or WE pass them directly.
-  // For 'On-Prem Zero', the Server acts as the Gateway/Client that knocks.
-  // BUT fwknop allows specifying the allow-ip via -a (allow-ip).
-  // So we authorize the USER'S IP, not the container's IP.
-
-  // NOTE: We need the STANZA name or destination from config. 
-  // For this generic demo, we assume the targetIp IS the destination and we have default keys.
-  // Real world: lookup stanza by targetIp.
-
   const cmd = `fwknop -n ${targetIp} -a ${clientIp} --Access ${protocol}/${port}`;
 
   exec(cmd, (error, stdout, stderr) => {

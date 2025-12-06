@@ -415,6 +415,56 @@
           </form>
         </div>
       </div>
+
+      <!-- Assets Card -->
+      <div class="card">
+        <h2><span data-i18n="assets">Assets</span> <span class="badge badge-rest">Inventory</span></h2>
+        <form id="addAssetForm">
+          <div class="form-group">
+            <label data-i18n="assetName">Asset Name</label>
+            <input type="text" id="assetName" required placeholder="Web Server">
+          </div>
+          <div class="form-group">
+            <label data-i18n="assetIp">IP Address</label>
+            <input type="text" id="assetIp" required placeholder="192.168.1.10">
+          </div>
+          <button type="submit" class="secondary" data-i18n="addAsset">Add Asset</button>
+        </form>
+        <div id="assetList" class="user-list" style="margin-top: 15px;">
+          <div class="loading" data-i18n="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Policies Card -->
+      <div class="card">
+        <h2><span data-i18n="policies">Policies</span> <span class="badge badge-bsidca">Rules</span></h2>
+        <form id="addPolicyForm">
+          <div class="form-group">
+            <label data-i18n="policyUser">User</label>
+            <input type="text" id="policyUser" required placeholder="user@example.com or *">
+          </div>
+          <div class="form-group">
+            <label data-i18n="policyAsset">Asset</label>
+            <select id="policyAssetId" required></select>
+          </div>
+          <div class="form-group">
+            <label data-i18n="policyPort">Port</label>
+            <input type="number" id="policyPort" required value="22">
+          </div>
+          <button type="submit" class="secondary" data-i18n="addPolicy">Add Policy</button>
+        </form>
+        <div id="policyList" class="user-list" style="margin-top: 15px;">
+          <div class="loading" data-i18n="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Audit Logs Card -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <h2><span data-i18n="auditLogs">Audit Logs</span> <span class="badge badge-sas">Visibility</span></h2>
+        <div id="auditList" class="user-list" style="max-height: 400px;">
+          <div class="loading" data-i18n="loading">Loading...</div>
+        </div>
+      </div>
       <div class="card">
         <h2><span data-i18n="createUser">Create User</span> <span class="badge badge-scim">SCIM</span></h2>
         <form id="createUserForm">
@@ -1013,8 +1063,153 @@
     //   }
     // };
 
+    // --- ZERO NETWORKS FRONTEND LOGIC ---
+
+    // Assets
+    async function loadAssets() {
+      const list = document.getElementById('assetList');
+      const policySelect = document.getElementById('policyAssetId');
+
+      try {
+        const res = await fetch('/api/assets');
+        const data = await res.json();
+
+        // Render List
+        if (data.data && data.data.length > 0) {
+          list.innerHTML = data.data.map(a => `
+            <div class="user-item">
+              <div class="user-info">
+                <div class="user-name">${a.name}</div>
+                <div class="user-id">${a.ip} (${a.os})</div>
+              </div>
+              <div class="user-actions">
+                <button class="danger" onclick="deleteAsset('${a.id}')">${t('delete')}</button>
+              </div>
+            </div>
+          `).join('');
+
+          // Populate Policy Dropdown
+          policySelect.innerHTML = data.data.map(a => `<option value="${a.id}">${a.name} (${a.ip})</option>`).join('');
+        } else {
+          list.innerHTML = `<div class="loading">${t('noAssets')}</div>`;
+          policySelect.innerHTML = '';
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
+      }
+    }
+
+    document.getElementById('addAssetForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('assetName').value;
+      const ip = document.getElementById('assetIp').value;
+
+      try {
+        await fetch('/api/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, ip })
+        });
+        e.target.reset();
+        loadAssets();
+      } catch (e) { alert(e.message); }
+    };
+
+    async function deleteAsset(id) {
+      if (!confirm(t('deleteConfirm'))) return;
+      await fetch('/api/assets/' + id, { method: 'DELETE' });
+      loadAssets();
+      loadPolicies(); // Refresh policies as some might reference deleted asset
+    }
+
+    // Policies
+    async function loadPolicies() {
+      const list = document.getElementById('policyList');
+      try {
+        const res = await fetch('/api/policies');
+        const data = await res.json();
+
+        if (data.data && data.data.length > 0) {
+          // Enh: efficient lookup for asset names would be better, but this is fine for prototype
+          // We can fetch assets again or use a global cache if needed.
+          // For now, raw ID display or simple match if we have asset list in memory? 
+          // Let's just display data raw-ish for speed.
+          list.innerHTML = data.data.map(p => `
+             <div class="user-item">
+              <div class="user-info">
+                <div class="user-name">${p.user} -> Asset:${p.assetId}</div>
+                <div class="user-id">Port: ${p.port} (${p.action})</div>
+              </div>
+              <div class="user-actions">
+                <button class="danger" onclick="deletePolicy('${p.id}')">${t('delete')}</button>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          list.innerHTML = `<div class="loading">${t('noPolicies')}</div>`;
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
+      }
+    }
+
+    document.getElementById('addPolicyForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const user = document.getElementById('policyUser').value;
+      const assetId = document.getElementById('policyAssetId').value;
+      const port = document.getElementById('policyPort').value;
+
+      try {
+        await fetch('/api/policies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user, assetId, port })
+        });
+        e.target.reset();
+        loadPolicies();
+      } catch (e) { alert(e.message); }
+    };
+
+    async function deletePolicy(id) {
+      if (!confirm(t('deleteConfirm'))) return;
+      await fetch('/api/policies/' + id, { method: 'DELETE' });
+      loadPolicies();
+    }
+
+    // Audit Logs
+    async function loadAudit() {
+      const list = document.getElementById('auditList');
+      try {
+        const res = await fetch('/api/audit');
+        const data = await res.json();
+
+        if (data.data && data.data.length > 0) {
+          list.innerHTML = data.data.map(l => `
+             <div class="user-item" style="border-left: 4px solid ${l.success ? '#4caf50' : '#f44336'}">
+              <div class="user-info">
+                <div class="user-name">${l.user} [${l.action}]</div>
+                <div class="user-id">${new Date(l.timestamp).toLocaleString()} - ${l.details || ''}</div>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          list.innerHTML = `<div class="loading">${t('noLogs')}</div>`;
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
+      }
+    }
+
+    // Poll logs every 5s
+    setInterval(loadAudit, 5000);
+
     // Initialize translations first, then check API status
-    initI18n().then(() => checkStatus());
+    initI18n().then(() => {
+      checkStatus();
+      loadAssets();
+      loadPolicies();
+      loadAudit();
+    });
   </script>
 </body>
 
