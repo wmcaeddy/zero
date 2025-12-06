@@ -1475,29 +1475,76 @@ const { exec } = require('child_process');
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 /**
+ * Resolve a username to email address using the SAS users cache
+ * SAS API requires email address for authentication, not just username
+ *
+ * @param {string} identifier - Username or email address
+ * @returns {Promise<{email: string|null, username: string|null, resolved: boolean}>}
+ */
+async function resolveUserIdentifier(identifier) {
+  // If it already looks like an email, use it directly
+  if (identifier.includes('@')) {
+    return { email: identifier, username: null, resolved: true, source: 'email_format' };
+  }
+
+  // Try to find user in cache by username
+  const cachedUsers = sasUsersCache.usersWithDetails || [];
+
+  // Search by username (case-insensitive)
+  const lowerIdentifier = identifier.toLowerCase();
+  let foundUser = cachedUsers.find(u =>
+    (u.username && u.username.toLowerCase() === lowerIdentifier) ||
+    (u.userid && u.userid.toLowerCase() === lowerIdentifier)
+  );
+
+  if (foundUser && foundUser.email) {
+    console.log(`[Resolver] Found email for '${identifier}': ${foundUser.email}`);
+    return { email: foundUser.email, username: identifier, resolved: true, source: 'cache' };
+  }
+
+  // If not in cache, try to fetch user details directly from SAS
+  if (SAS_URL && SAS_USER && SAS_PASSWORD) {
+    console.log(`[Resolver] User '${identifier}' not in cache, fetching from SAS...`);
+    const authResult = await connectSAS();
+    if (authResult.success) {
+      const details = await getSasUserDetails(identifier, authResult.cookie);
+      if (details.email) {
+        console.log(`[Resolver] Found email for '${identifier}' from SAS: ${details.email}`);
+        return { email: details.email, username: identifier, resolved: true, source: 'sas_lookup' };
+      }
+    }
+  }
+
+  // Could not resolve - return original identifier
+  console.log(`[Resolver] Could not resolve '${identifier}' to email, using as-is`);
+  return { email: null, username: identifier, resolved: false, source: 'none' };
+}
+
+/**
  * SAS: Verify End-User OTP using TestToken SOAP method
  *
  * TestToken is the proper BSIDCA method for validating end-user OTP codes.
  * It tests an OTP against a user's assigned token without establishing an operator session.
  *
  * Flow:
- * 1. First authenticate as operator (Connect) to establish session
- * 2. Then call TestToken with the end-user's username and OTP
+ * 1. Resolve username to email if needed (SAS requires email)
+ * 2. Authenticate as operator (Connect) to establish session
+ * 3. Call TestToken with the end-user's email and OTP
  *
- * @param {string} username - The end-user's username/email
+ * @param {string} identifier - The end-user's username or email
  * @param {string} otp - The OTP code from mobilePASS or authenticator app
  * @returns {Promise<{success: boolean, error?: string, method?: string}>}
  */
-async function verifyUserMFA(username, otp) {
+async function verifyUserMFA(identifier, otp) {
   // Demo bypass - only if DEMO_MODE is explicitly enabled
   if (DEMO_MODE && otp === '000000') {
-    console.log(`[Demo Mode] Bypassing MFA for user '${username}' with test OTP.`);
+    console.log(`[Demo Mode] Bypassing MFA for user '${identifier}' with test OTP.`);
     return { success: true, method: 'demo_bypass' };
   }
 
   // Validate inputs
-  if (!username || !otp) {
-    return { success: false, error: 'Username and OTP are required' };
+  if (!identifier || !otp) {
+    return { success: false, error: 'Username/email and OTP are required' };
   }
 
   // Check if SAS is configured
@@ -1505,25 +1552,48 @@ async function verifyUserMFA(username, otp) {
     return { success: false, error: 'SAS endpoint not configured. Set SAS_Endpoint_Url environment variable.' };
   }
 
-  // Method 1: Try TestToken (proper end-user OTP validation)
-  const testTokenResult = await verifyWithTestToken(username, otp);
+  // Resolve username to email if needed
+  const resolved = await resolveUserIdentifier(identifier);
+  const userEmail = resolved.email || identifier;
+
+  console.log(`[Auth] Authenticating: input='${identifier}', resolved='${userEmail}' (source: ${resolved.source})`);
+
+  // Method 1: Try TestToken with resolved email (proper end-user OTP validation)
+  const testTokenResult = await verifyWithTestToken(userEmail, otp);
   if (testTokenResult.success) {
-    return { ...testTokenResult, method: 'TestToken' };
+    return { ...testTokenResult, method: 'TestToken', resolvedAs: userEmail };
+  }
+
+  // If we resolved to email and it failed, also try with original identifier
+  if (resolved.resolved && userEmail !== identifier) {
+    console.log(`[Auth] TestToken failed with email, trying original identifier '${identifier}'...`);
+    const testTokenOriginal = await verifyWithTestToken(identifier, otp);
+    if (testTokenOriginal.success) {
+      return { ...testTokenOriginal, method: 'TestToken', resolvedAs: identifier };
+    }
   }
 
   // Method 2: Fallback to Connect (if user is also an operator)
-  // This handles cases where end-users might also have operator privileges
-  console.log(`TestToken failed for ${username}, trying Connect fallback...`);
-  const connectResult = await verifyWithConnect(username, otp);
+  console.log(`[Auth] TestToken failed, trying Connect fallback with '${userEmail}'...`);
+  const connectResult = await verifyWithConnect(userEmail, otp);
   if (connectResult.success) {
-    return { ...connectResult, method: 'Connect' };
+    return { ...connectResult, method: 'Connect', resolvedAs: userEmail };
   }
 
-  // Both methods failed
+  // Try Connect with original identifier if different
+  if (resolved.resolved && userEmail !== identifier) {
+    const connectOriginal = await verifyWithConnect(identifier, otp);
+    if (connectOriginal.success) {
+      return { ...connectOriginal, method: 'Connect', resolvedAs: identifier };
+    }
+  }
+
+  // All methods failed
   return {
     success: false,
     error: `Authentication failed. TestToken: ${testTokenResult.error}. Connect: ${connectResult.error}`,
-    methods_tried: ['TestToken', 'Connect']
+    methods_tried: ['TestToken', 'Connect'],
+    identifiers_tried: resolved.resolved ? [userEmail, identifier] : [identifier]
   };
 }
 
@@ -1691,6 +1761,7 @@ app.post('/api/auth/verify', async (req, res) => {
       success: true,
       message: 'Authentication successful',
       username: username,
+      resolvedAs: result.resolvedAs || username,
       method: result.method,
       timestamp: new Date().toISOString()
     });
@@ -1699,8 +1770,9 @@ app.post('/api/auth/verify', async (req, res) => {
       success: false,
       error: result.error,
       username: username,
+      identifiers_tried: result.identifiers_tried || [username],
       methods_tried: result.methods_tried || [result.method || 'unknown'],
-      hint: DEMO_MODE ? 'Demo mode enabled - use OTP "000000" to bypass' : 'Ensure user has a valid token assigned in SAS'
+      hint: DEMO_MODE ? 'Demo mode enabled - use OTP "000000" to bypass' : 'Ensure user has a valid token assigned in SAS. You can use either username or email address.'
     });
   }
 });
