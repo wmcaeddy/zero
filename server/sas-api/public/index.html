@@ -1,72 +1,360 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>STA API Demo</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    h1 { color: #333; margin-bottom: 10px; }
-    .subtitle { color: #666; margin-bottom: 30px; }
-    .status { padding: 10px 15px; border-radius: 6px; margin-bottom: 20px; }
-    .status.ok { background: #d4edda; color: #155724; }
-    .status.error { background: #f8d7da; color: #721c24; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
-    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .card h2 { font-size: 1.1rem; margin-bottom: 15px; color: #333; }
-    .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px; }
-    .badge-scim { background: #e3f2fd; color: #1565c0; }
-    .badge-rest { background: #e8f5e9; color: #2e7d32; }
-    .badge-bsidca { background: #fff3e0; color: #e65100; }
-    .badge-sas { background: #f3e5f5; color: #7b1fa2; }
-    .form-group { margin-bottom: 12px; }
-    label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 4px; }
-    input, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
-    input:focus, select:focus { outline: none; border-color: #2196f3; }
-    button { width: 100%; padding: 10px; background: #2196f3; color: white; border: none; border-radius: 4px; font-size: 0.95rem; cursor: pointer; margin-top: 10px; }
-    button:hover { background: #1976d2; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
-    button.secondary { background: #757575; }
-    button.secondary:hover { background: #616161; }
-    button.danger { background: #f44336; }
-    button.danger:hover { background: #d32f2f; }
-    .debug { margin-top: 30px; }
-    .debug h2 { margin-bottom: 15px; }
-    .debug-content { background: #263238; color: #aed581; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; max-height: 600px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
-    .debug-section { border-left: 3px solid #4caf50; padding-left: 10px; margin-bottom: 15px; }
-    .debug-section h3 { color: #81c784; font-size: 0.9rem; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .debug-key { color: #64b5f6; }
-    .debug-string { color: #ffab91; }
-    .debug-number { color: #ce93d8; }
-    .debug-null { color: #90a4ae; }
-    .user-list { margin-top: 15px; max-height: 250px; overflow-y: auto; }
-    .user-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f9f9f9; border-radius: 4px; margin-bottom: 8px; }
-    .user-info { flex: 1; }
-    .user-name { font-weight: 500; }
-    .user-id { font-size: 0.75rem; color: #999; font-family: monospace; }
-    .user-actions { display: flex; gap: 5px; }
-    .user-actions button { width: auto; padding: 5px 10px; font-size: 0.8rem; margin: 0; }
-    .loading { text-align: center; padding: 20px; color: #666; }
-    .user-checkbox { margin-right: 12px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; align-self: flex-start; margin-top: 4px; }
-    .user-item-sas { display: flex; align-items: flex-start; padding: 10px; border-bottom: 1px solid #eee; }
-    .user-item-sas:last-child { border-bottom: none; }
-    .user-item-sas .user-info { flex: 1; }
-    button.primary { background: #4caf50; }
-    button.primary:hover { background: #388e3c; }
-    button.primary:disabled { background: #ccc; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-    .header-left { flex: 1; }
-    .lang-selector { display: flex; align-items: center; gap: 8px; }
-    .lang-selector label { font-size: 0.85rem; color: #666; margin: 0; }
-    .lang-selector select { width: auto; padding: 6px 10px; font-size: 0.85rem; border-radius: 4px; cursor: pointer; }
-    .pagination { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
-    .page-info { font-size: 0.9rem; color: #666; min-width: 60px; text-align: center; }
-    .button-row { display: flex; gap: 10px; margin-bottom: 10px; }
-    .button-row button { flex: 1; margin: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+    }
+
+    .status {
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .status.ok {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .card h2 {
+      font-size: 1.1rem;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      margin-left: 8px;
+    }
+
+    .badge-scim {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .badge-rest {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .badge-bsidca {
+      background: #fff3e0;
+      color: #e65100;
+    }
+
+    .badge-sas {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 0.95rem;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #2196f3;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background: #1976d2;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #757575;
+    }
+
+    button.secondary:hover {
+      background: #616161;
+    }
+
+    button.danger {
+      background: #f44336;
+    }
+
+    button.danger:hover {
+      background: #d32f2f;
+    }
+
+    .debug {
+      margin-top: 30px;
+    }
+
+    .debug h2 {
+      margin-bottom: 15px;
+    }
+
+    .debug-content {
+      background: #263238;
+      color: #aed581;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.85rem;
+      max-height: 600px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .debug-section {
+      border-left: 3px solid #4caf50;
+      padding-left: 10px;
+      margin-bottom: 15px;
+    }
+
+    .debug-section h3 {
+      color: #81c784;
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .debug-key {
+      color: #64b5f6;
+    }
+
+    .debug-string {
+      color: #ffab91;
+    }
+
+    .debug-number {
+      color: #ce93d8;
+    }
+
+    .debug-null {
+      color: #90a4ae;
+    }
+
+    .user-list {
+      margin-top: 15px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .user-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .user-info {
+      flex: 1;
+    }
+
+    .user-name {
+      font-weight: 500;
+    }
+
+    .user-id {
+      font-size: 0.75rem;
+      color: #999;
+      font-family: monospace;
+    }
+
+    .user-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .user-actions button {
+      width: auto;
+      padding: 5px 10px;
+      font-size: 0.8rem;
+      margin: 0;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+
+    .user-checkbox {
+      margin-right: 12px;
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: 4px;
+    }
+
+    .user-item-sas {
+      display: flex;
+      align-items: flex-start;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .user-item-sas:last-child {
+      border-bottom: none;
+    }
+
+    .user-item-sas .user-info {
+      flex: 1;
+    }
+
+    button.primary {
+      background: #4caf50;
+    }
+
+    button.primary:hover {
+      background: #388e3c;
+    }
+
+    button.primary:disabled {
+      background: #ccc;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .header-left {
+      flex: 1;
+    }
+
+    .lang-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lang-selector label {
+      font-size: 0.85rem;
+      color: #666;
+      margin: 0;
+    }
+
+    .lang-selector select {
+      width: auto;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid #eee;
+    }
+
+    .page-info {
+      font-size: 0.9rem;
+      color: #666;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .button-row button {
+      flex: 1;
+      margin: 0;
+    }
   </style>
 </head>
+
 <body>
   <div class="container">
     <div class="header">
@@ -90,16 +378,55 @@
     <div id="status" class="status" data-i18n="statusChecking">Checking API status...</div>
 
     <div class="grid">
+      <!-- Zero Access Card -->
+      <div class="card" style="border-top: 4px solid #ff9800;">
+        <h2><span data-i18n="zeroAccess">Zero Access</span> <span class="badge badge-bsidca">MFA + SPA</span></h2>
+
+        <!-- Step 1: Verify Identity -->
+        <div id="stepVerify">
+          <form id="verifyIdentityForm">
+            <div class="form-group">
+              <label data-i18n="userId">User ID</label>
+              <input type="text" id="verifyUser" required placeholder="username">
+            </div>
+            <div class="form-group">
+              <label data-i18n="otpLabel">OTP Code</label>
+              <input type="text" id="verifyOtp" required placeholder="123456" autocomplete="one-time-code">
+            </div>
+            <button type="submit" class="primary" data-i18n="verifyBtn">Verify & Unlock</button>
+          </form>
+        </div>
+
+        <!-- Step 2: Connect Target (Hidden until verified) -->
+        <div id="stepConnect" style="display: none;">
+          <div class="status ok" style="margin-bottom: 15px;">
+            <strong data-i18n="verifyIdentity">Identity Verified</strong>
+          </div>
+          <form id="connectTargetForm">
+            <div class="form-group">
+              <label data-i18n="targetIp">Target IP</label>
+              <input type="text" id="targetIp" required placeholder="192.168.x.x">
+            </div>
+            <div class="form-group">
+              <label data-i18n="targetPort">Target Port</label>
+              <input type="number" id="targetPort" value="22" required>
+            </div>
+            <button type="submit" data-i18n="connectBtn">Connect (SPA)</button>
+          </form>
+        </div>
+      </div>
       <div class="card">
         <h2><span data-i18n="createUser">Create User</span> <span class="badge badge-scim">SCIM</span></h2>
         <form id="createUserForm">
           <div class="form-group">
             <label data-i18n="userId">User ID (Username/Identifier)</label>
-            <input type="text" id="userId" required data-i18n-placeholder="userIdPlaceholder" placeholder="jdoe or john.doe@example.com">
+            <input type="text" id="userId" required data-i18n-placeholder="userIdPlaceholder"
+              placeholder="jdoe or john.doe@example.com">
           </div>
           <div class="form-group">
             <label data-i18n="emailAddress">Email Address</label>
-            <input type="email" id="emailAddress" required data-i18n-placeholder="emailPlaceholder" placeholder="john.doe@example.com">
+            <input type="email" id="emailAddress" required data-i18n-placeholder="emailPlaceholder"
+              placeholder="john.doe@example.com">
           </div>
           <div class="form-group">
             <label data-i18n="firstName">First Name</label>
@@ -123,9 +450,11 @@
           <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
         </div>
         <div id="sasPagination" class="pagination" style="display: none;">
-          <button id="sasPrevPage" class="secondary" style="width: auto; padding: 8px 16px;">&lt; <span data-i18n="prev">Prev</span></button>
+          <button id="sasPrevPage" class="secondary" style="width: auto; padding: 8px 16px;">&lt; <span
+              data-i18n="prev">Prev</span></button>
           <span id="sasPageInfo" class="page-info">1 / 1</span>
-          <button id="sasNextPage" class="secondary" style="width: auto; padding: 8px 16px;"><span data-i18n="next">Next</span> &gt;</button>
+          <button id="sasNextPage" class="secondary" style="width: auto; padding: 8px 16px;"><span
+              data-i18n="next">Next</span> &gt;</button>
         </div>
       </div>
 
@@ -142,7 +471,8 @@
         <form id="provisionTokenForm">
           <div class="form-group">
             <label data-i18n="usernameEmail">Username / Email</label>
-            <input type="text" id="tokenUserName" required data-i18n-placeholder="usernameEmailPlaceholder" placeholder="user@example.com">
+            <input type="text" id="tokenUserName" required data-i18n-placeholder="usernameEmailPlaceholder"
+              placeholder="user@example.com">
           </div>
           <div class="form-group">
             <label data-i18n="tokenType">Token Type</label>
@@ -157,7 +487,8 @@
           </div>
           <div class="form-group">
             <label data-i18n="descriptionOptional">Description (optional)</label>
-            <input type="text" id="tokenDescription" data-i18n-placeholder="descriptionPlaceholder" placeholder="Token description">
+            <input type="text" id="tokenDescription" data-i18n-placeholder="descriptionPlaceholder"
+              placeholder="Token description">
           </div>
           <button type="submit" data-i18n="provisionTokenBtn">Provision Token</button>
         </form>
@@ -403,7 +734,8 @@
               ${authMethod ? `<div class="user-id">Auth: ${authMethod}</div>` : ''}
             </div>
           </div>
-        `;}).join('');
+        `;
+        }).join('');
       }
     }
 
@@ -433,7 +765,7 @@
         const cachedData = sasPageCache[page];
         renderSasUsers(cachedData.users);
         updateSasPagination(cachedData.pagination);
-        log({...cachedData, _source: 'frontend-cache'});
+        log({ ...cachedData, _source: 'frontend-cache' });
         return;
       }
 
@@ -606,6 +938,70 @@
 
     document.getElementById('refreshUsers').onclick = loadUsers;
 
+    // Zero Access Logic
+    let verifiedUser = null;
+
+    document.getElementById('verifyIdentityForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const user = document.getElementById('verifyUser').value;
+      const otp = document.getElementById('verifyOtp').value;
+      const btn = e.target.querySelector('button');
+
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, otp })
+        });
+        const data = await res.json();
+        log(data);
+
+        if (data.success) {
+          verifiedUser = user;
+          document.getElementById('stepVerify').style.display = 'none';
+          document.getElementById('stepConnect').style.display = 'block';
+        } else {
+          alert('Verification Failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+      btn.disabled = false;
+    };
+
+    document.getElementById('connectTargetForm').onsubmit = async (e) => {
+      e.preventDefault();
+      if (!verifiedUser) {
+        alert(t('verifyFirst'));
+        return;
+      }
+
+      const targetIp = document.getElementById('targetIp').value;
+      const targetPort = document.getElementById('targetPort').value;
+      const btn = e.target.querySelector('button');
+
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/network/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetIp, port: targetPort })
+        });
+        const data = await res.json();
+        log(data);
+
+        if (data.success) {
+          alert(t('accessGranted'));
+        } else {
+          alert('Connection Failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+      btn.disabled = false;
+    };
+
     // Tokens section commented out
     // document.getElementById('refreshTokens').onclick = async () => {
     //   try {
@@ -621,4 +1017,5 @@
     initI18n().then(() => checkStatus());
   </script>
 </body>
+
 </html>

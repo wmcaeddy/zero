@@ -151,6 +151,27 @@ python3 ./client/spa-mfa.py --server 192.168.2.19 --port 8080
 - Python 3.8+ (for MFA wrapper)
 - TOTP Authenticator app (Google Authenticator, Authy, etc.)
 
+## Quick Start
+
+### Zero Console (Admin Portal)
+The central management console ("Zero Networks" clone) runs in Docker.
+
+```bash
+# 1. Start the Console
+docker-compose up -d --build
+
+# 2. Access UI
+open http://localhost:3000
+```
+
+### Usage Flow
+1. **Login**: Go to the "Zero Access" tab in the Console.
+2. **Verify**: Enter Username and OTP (MFA).
+3. **Connect**: Enter Target IP and Port (e.g., SSH port 22).
+4. **Access**: The Console sends a Single Packet Authorization (SPA) to the target.
+   - Requires `fwknopd` running on the target.
+   - Opens the firewall for *your* IP address (auto-detected).
+
 ## License
 
 MIT License - See LICENSE file for details.

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  admin-console:
+    build: 
+      context: ./server/sas-api
+    image: zero-admin-console
+    container_name: zero-admin
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      # SAS / STA Configuration (Passed from .env)
+      - SAS_Endpoint_Url=${SAS_Endpoint_Url}
+      - SAS_User=${SAS_User}
+      - SAS_Password=${SAS_Password}
+      - SAS_ORGANIZATION=${SAS_ORGANIZATION}
+      - BSIDCA_Endpoint_Url=${BSIDCA_Endpoint_Url}
+      - BSIDCA_Email=${BSIDCA_Email}
+      - BSIDCA_Password=${BSIDCA_Password}
+      - ORGANIZATION=${ORGANIZATION}
+      # App Security
+      - APP_PASSWORD=${APP_PASSWORD}
+    volumes:
+      - zero-data:/app/data
+      # Mount SPA keys if needed, or pass as env vars
+      - ${HOME}/.zero-spa:/root/.zero-spa:ro
+
+volumes:
+  zero-data:

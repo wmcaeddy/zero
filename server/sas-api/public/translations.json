@@ -54,7 +54,17 @@
     "noUsersSelected": "ユーザーが選択されていません",
     "usersCreatedResult": "作成完了: {success}件成功、{fail}件失敗",
     "prev": "前へ",
-    "next": "次へ"
+    "next": "次へ",
+    "zeroAccess": "Zero アクセス",
+    "verifyIdentity": "本人確認 (MFA)",
+    "otpLabel": "OTP コード",
+    "verifyBtn": "確認してロック解除",
+    "connectTarget": "ターゲットに接続",
+    "targetIp": "ターゲット IP アドレス",
+    "targetPort": "ターゲット ポート",
+    "connectBtn": "接続 (SPA)",
+    "accessGranted": "アクセス許可！",
+    "verifyFirst": "先に本人確認を行ってください"
   },
   "en": {
     "langName": "English",
@@ -111,7 +121,17 @@
     "noUsersSelected": "No users selected",
     "usersCreatedResult": "Created: {success} succeeded, {fail} failed",
     "prev": "Prev",
-    "next": "Next"
+    "next": "Next",
+    "zeroAccess": "Zero Access",
+    "verifyIdentity": "Verify Identity (MFA)",
+    "otpLabel": "OTP Code",
+    "verifyBtn": "Verify & Unlock",
+    "connectTarget": "Connect to Target",
+    "targetIp": "Target IP Address",
+    "targetPort": "Target Port",
+    "connectBtn": "Connect (SPA)",
+    "accessGranted": "Access Granted!",
+    "verifyFirst": "Please verify identity first"
   },
   "hi": {
     "langName": "हिन्दी",
