@@ -1476,40 +1476,41 @@ async function verifyUserMFA(username, otp) {
   // OR we simply assume success if we can find the user and the OTP matches a pattern (mock)
   // because we might not have a real SAS backend that accepts direct user auth via this specific SOAP API without more config.
 
-  // REAL IMPLEMENTATION ATTEMPT via SOAP (Authentication API)
-  // We use the standard 'CheckPassword' method common in SAS/BlackShield Agent APIs.
+  // REAL IMPLEMENTATION ATTEMPT via SOAP (BSIDCA Connect)
+  // We revert to 'Connect' as it is the standard entry point for BSIDCA authentication (Operator Role).
+  // 'CheckPassword' is for Agent API (End Users). Since we are likely hitting BSIDCA, we use Connect.
   const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <CheckPassword xmlns="http://www.cryptocard.com/blackshield/">
-      <UserID>${xmlEscape(username)}</UserID>
-      <Password>${xmlEscape(otp)}</Password>
-    </CheckPassword>
+    <Connect xmlns="http://www.cryptocard.com/blackshield/">
+      <OperatorEmail>${xmlEscape(username)}</OperatorEmail>
+      <OTP>${xmlEscape(otp)}</OTP>
+    </Connect>
   </soap:Body>
 </soap:Envelope>`;
 
   try {
+    // Note: Use BSIDCA_URL if SAS_URL is not explicitly set for Auth, or assume SAS_URL is the BSIDCA endpoint.
+    // For this fix, we use SAS_URL but it likely points to BSIDCA.asmx based on user context.
     const response = await fetch(SAS_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://www.cryptocard.com/blackshield/CheckPassword'
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
       },
       body: soapEnvelope
     });
 
     const responseText = await response.text();
-    console.log('SAS MFA Response:', responseText); // Debug log
+    console.log('SAS MFA Response (Connect):', responseText); // Debug log
 
-    // Robust extraction: ignore namespaces/attributes, look for CheckPasswordResult
-    const match = responseText.match(/:?CheckPasswordResult[^>]*>([^<]+)<\//i);
+    // Robust extraction: ignore namespaces/attributes, look for ConnectResult
+    const match = responseText.match(/:?ConnectResult[^>]*>([^<]+)<\//i);
     const result = match ? match[1] : null;
 
-    // CheckPassword usually returns '1' for success, or 'ACCESS_ACCEPT', or 'AUTH_SUCCESS' depending on version.
-    // We'll check for common success indicators.
-    if (result === '1' || result === 1 || result === 'AUTH_SUCCESS' || result === 'ACCESS_ACCEPT') {
+    if (result === 'AUTH_SUCCESS' || result === 'true') {
       return { success: true };
     }
 
