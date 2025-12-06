@@ -1530,7 +1530,7 @@ app.post('/api/auth/verify', async (req, res) => {
     res.status(401).json({ success: false, error: result.error });
   }
 });
-});
+
 
 // Endpoint: Connect to Network Target (SPA)
 app.post('/api/network/connect', async (req, res) => {
