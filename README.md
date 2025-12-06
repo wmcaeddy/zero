@@ -58,6 +58,9 @@ zero/
 │   └── sample-app/            # Sample protected application
 │       ├── app.py             # Flask HTTP server
 │       └── requirements.txt
+│   └── sas-api/               # SAS User Management API (Node.js)
+│       ├── index.js           # API Server
+│       └── public/            # Frontend assets
 │
 ├── client/                     # Client-side components
 │   ├── install.sh             # Install fwknop client
