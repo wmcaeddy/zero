@@ -58,8 +58,9 @@ zero/
 │   └── sample-app/            # Sample protected application
 │       ├── app.py             # Flask HTTP server
 │       └── requirements.txt
-│   └── sas-api/               # SAS User Management API (Node.js)
-│       ├── index.js           # API Server
+│   └── sas-api/               # SAS/BSIDCA API Integration (Node.js)
+│       ├── index.js           # API Server with mobilePASS OTP validation
+│       ├── package.json       # Dependencies
 │       └── public/            # Frontend assets
 │
 ├── client/                     # Client-side components
@@ -171,6 +172,73 @@ open http://localhost:3000
 4. **Access**: The Console sends a Single Packet Authorization (SPA) to the target.
    - Requires `fwknopd` running on the target.
    - Opens the firewall for *your* IP address (auto-detected).
+
+## SAS/BSIDCA API Integration
+
+The admin console supports **Thales SafeNet Authentication Service (SAS)** for OTP validation, including **mobilePASS** tokens.
+
+### OTP Verification API
+
+```bash
+# Verify user OTP via SAS
+POST /api/auth/verify
+Content-Type: application/json
+
+{
+  "username": "user@example.com",
+  "otp": "123456"
+}
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "message": "Authentication successful",
+  "username": "user@example.com",
+  "method": "TestToken",
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+### Authentication Methods
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| **TestToken** | Primary - validates OTP against user's assigned token | End-users with mobilePASS/TOTP tokens |
+| **Connect** | Fallback - operator authentication | Users with operator privileges |
+
+### Environment Variables
+
+```bash
+# SAS Configuration (required for OTP validation)
+SAS_Endpoint_Url=https://your-sas-server/BSIDCA.asmx
+SAS_User=operator@yourdomain.com
+SAS_Password=<operator_otp>
+SAS_ORGANIZATION=YourOrg
+
+# BSIDCA Configuration (for token provisioning)
+BSIDCA_Endpoint_Url=https://cloud.eu.safenetid.com/bsidca/BSIDCA.asmx
+BSIDCA_Email=operator@yourdomain.com
+BSIDCA_Password=<operator_otp>
+ORGANIZATION=YourOrg
+
+# Demo mode (optional - allows OTP "000000" for testing)
+DEMO_MODE=true
+```
+
+### Token Provisioning
+
+The API supports provisioning mobilePASS and other token types:
+
+```bash
+# Provision a mobilePASS token for a user
+POST /api/tokens
+{
+  "userName": "user@example.com",
+  "tokenType": "MobilePASS"
+}
+```
 
 ## License
 

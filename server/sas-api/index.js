@@ -550,6 +550,12 @@ app.get('/api/status', (req, res) => {
       sas_password: SAS_PASSWORD ? 'SET' : 'NOT SET',
       sas_organization: SAS_ORGANIZATION ? 'SET' : 'NOT SET'
     },
+    authentication: {
+      demo_mode: DEMO_MODE,
+      demo_mode_note: DEMO_MODE ? 'OTP "000000" will bypass verification' : 'Set DEMO_MODE=true to enable test bypass',
+      methods: ['TestToken (primary - end-user OTP)', 'Connect (fallback - operator auth)'],
+      endpoint: 'POST /api/auth/verify with { username, otp }'
+    },
     persistentStorage: {
       available: persistentAvailable,
       path: PERSISTENT_DATA_PATH,
@@ -1465,26 +1471,139 @@ app.get('/', (req, res) => {
 
 const { exec } = require('child_process');
 
-// SAS: Verify User Credentials (MFA)
-// Uses the 'Connect' method but for end-users ideally, or we reuse operator Connect if it supports user creds.
-// In many SAS implementations, 'Connect' is for agents/operators.
-// We will try to use the same Connect method for now, assuming the user might be an operator/agent or we mock it for demo.
-// Ideally usage: <VerifyUser><userName>eddy</userName><otp>123456</otp></VerifyUser>
+// Environment variable to enable demo bypass (set DEMO_MODE=true to allow OTP 000000)
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+
+/**
+ * SAS: Verify End-User OTP using TestToken SOAP method
+ *
+ * TestToken is the proper BSIDCA method for validating end-user OTP codes.
+ * It tests an OTP against a user's assigned token without establishing an operator session.
+ *
+ * Flow:
+ * 1. First authenticate as operator (Connect) to establish session
+ * 2. Then call TestToken with the end-user's username and OTP
+ *
+ * @param {string} username - The end-user's username/email
+ * @param {string} otp - The OTP code from mobilePASS or authenticator app
+ * @returns {Promise<{success: boolean, error?: string, method?: string}>}
+ */
 async function verifyUserMFA(username, otp) {
-  // DEMO BYPASS: Allow '000000' to pass verification for testing flow
-  if (otp === '000000') {
-    console.log(`[Demo] Bypassing MFA for user '${username}' with magic OTP.`);
-    return { success: true };
+  // Demo bypass - only if DEMO_MODE is explicitly enabled
+  if (DEMO_MODE && otp === '000000') {
+    console.log(`[Demo Mode] Bypassing MFA for user '${username}' with test OTP.`);
+    return { success: true, method: 'demo_bypass' };
   }
 
-  // NOTE: In a real SAS deployment, you might use 'ValidateOTP' or 'CheckPassword'
-  // For this demo, we will attempt to use the generic 'Connect' if it allows user/otp,
-  // OR we simply assume success if we can find the user and the OTP matches a pattern (mock)
-  // because we might not have a real SAS backend that accepts direct user auth via this specific SOAP API without more config.
+  // Validate inputs
+  if (!username || !otp) {
+    return { success: false, error: 'Username and OTP are required' };
+  }
 
-  // REAL IMPLEMENTATION ATTEMPT via SOAP (BSIDCA Connect)
-  // We revert to 'Connect' as it is the standard entry point for BSIDCA authentication (Operator Role).
-  // 'CheckPassword' is for Agent API (End Users). Since we are likely hitting BSIDCA, we use Connect.
+  // Check if SAS is configured
+  if (!SAS_URL) {
+    return { success: false, error: 'SAS endpoint not configured. Set SAS_Endpoint_Url environment variable.' };
+  }
+
+  // Method 1: Try TestToken (proper end-user OTP validation)
+  const testTokenResult = await verifyWithTestToken(username, otp);
+  if (testTokenResult.success) {
+    return { ...testTokenResult, method: 'TestToken' };
+  }
+
+  // Method 2: Fallback to Connect (if user is also an operator)
+  // This handles cases where end-users might also have operator privileges
+  console.log(`TestToken failed for ${username}, trying Connect fallback...`);
+  const connectResult = await verifyWithConnect(username, otp);
+  if (connectResult.success) {
+    return { ...connectResult, method: 'Connect' };
+  }
+
+  // Both methods failed
+  return {
+    success: false,
+    error: `Authentication failed. TestToken: ${testTokenResult.error}. Connect: ${connectResult.error}`,
+    methods_tried: ['TestToken', 'Connect']
+  };
+}
+
+/**
+ * Verify OTP using TestToken SOAP method
+ * This is the proper method for end-user authentication
+ */
+async function verifyWithTestToken(username, otp) {
+  // First, establish operator session
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return { success: false, error: `Operator session failed: ${authResult.error}` };
+  }
+
+  // Build SOAP envelope for TestToken
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <TestToken xmlns="http://www.cryptocard.com/blackshield/">
+      <userName>${xmlEscape(username)}</userName>
+      <otp>${xmlEscape(otp)}</otp>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </TestToken>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/TestToken'
+    };
+
+    // Include session cookie from operator authentication
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    console.log(`[TestToken] Validating OTP for user: ${username}`);
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    console.log('[TestToken] Response:', responseText.substring(0, 500));
+
+    // Parse TestTokenResult - can be boolean or result code
+    // Possible results: true, false, AUTH_SUCCESS, AUTH_FAILURE, TOKEN_NOT_FOUND, etc.
+    const resultMatch = responseText.match(/<TestTokenResult[^>]*>([^<]+)<\/TestTokenResult>/i) ||
+                        responseText.match(/:TestTokenResult[^>]*>([^<]+)<\//i);
+
+    const result = resultMatch ? resultMatch[1].trim() : null;
+
+    if (result === 'true' || result === 'True' || result === 'AUTH_SUCCESS') {
+      console.log(`[TestToken] SUCCESS for user: ${username}`);
+      return { success: true };
+    }
+
+    // Check for specific error messages
+    const errorMatch = responseText.match(/<faultstring[^>]*>([^<]+)<\/faultstring>/i);
+    const errorMsg = errorMatch ? errorMatch[1] : `TestToken returned: ${result || 'empty response'}`;
+
+    console.log(`[TestToken] FAILED for user: ${username}, result: ${result}`);
+    return { success: false, error: errorMsg };
+
+  } catch (err) {
+    console.error(`[TestToken] Error for user ${username}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Verify OTP using Connect SOAP method (fallback for operator accounts)
+ * This method is typically for operator authentication but can work if the user has operator privileges
+ */
+async function verifyWithConnect(username, otp) {
   const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -1498,8 +1617,6 @@ async function verifyUserMFA(username, otp) {
 </soap:Envelope>`;
 
   try {
-    // Note: Use BSIDCA_URL if SAS_URL is not explicitly set for Auth, or assume SAS_URL is the BSIDCA endpoint.
-    // For this fix, we use SAS_URL but it likely points to BSIDCA.asmx based on user context.
     const response = await fetch(SAS_URL, {
       method: 'POST',
       headers: {
@@ -1510,42 +1627,81 @@ async function verifyUserMFA(username, otp) {
     });
 
     const responseText = await response.text();
-    console.log('SAS MFA Response (Connect):', responseText); // Debug log
+    console.log('[Connect] Response:', responseText.substring(0, 500));
 
-    // Robust extraction: ignore namespaces/attributes, look for ConnectResult
-    const match = responseText.match(/:?ConnectResult[^>]*>([^<]+)<\//i);
-    const result = match ? match[1] : null;
+    // Extract ConnectResult
+    const match = responseText.match(/<ConnectResult[^>]*>([^<]+)<\/ConnectResult>/i) ||
+                  responseText.match(/:ConnectResult[^>]*>([^<]+)<\//i);
+    const result = match ? match[1].trim() : null;
 
-    if (result === 'AUTH_SUCCESS' || result === 'true') {
+    if (result === 'AUTH_SUCCESS') {
+      console.log(`[Connect] SUCCESS for user: ${username}`);
       return { success: true };
     }
 
-    let errorMsg = 'Authentication failed (Result: ' + result + ')';
-    if (result === 'AUTH_FAILURE') {
-      errorMsg += '. Note: The "Connect" endpoint authorizes OPERATORS. Ensure "' + username + '" is an Operator, or use OTP "000000" to bypass for demo.';
-    }
+    return {
+      success: false,
+      error: `Connect returned: ${result || 'unknown'}`
+    };
 
-    return { success: false, error: errorMsg };
   } catch (err) {
+    console.error(`[Connect] Error for user ${username}:`, err.message);
     return { success: false, error: err.message };
   }
 }
 
 // Endpoint: Verify User MFA
+// POST /api/auth/verify
+// Body: { "username": "user@example.com", "otp": "123456" }
+// Response: { "success": true, "message": "...", "username": "...", "method": "TestToken|Connect|demo_bypass" }
 app.post('/api/auth/verify', async (req, res) => {
   const { username, otp } = req.body;
 
   if (!username || !otp) {
-    return res.status(400).json({ success: false, error: 'Username and OTP required' });
+    return res.status(400).json({
+      success: false,
+      error: 'Username and OTP required',
+      usage: {
+        endpoint: 'POST /api/auth/verify',
+        body: { username: 'user@example.com or userId', otp: '6-digit OTP from mobilePASS/authenticator' },
+        note: 'Set DEMO_MODE=true env var to allow OTP "000000" for testing'
+      }
+    });
   }
 
-  // 1. Verify against SAS
+  // Validate OTP format (should be 6-8 digits)
+  if (!/^\d{6,8}$/.test(otp)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid OTP format. Must be 6-8 digits.',
+      provided: otp.length + ' characters'
+    });
+  }
+
+  console.log(`[Auth] Verifying MFA for user: ${username}`);
+
+  // Verify against SAS using TestToken (primary) or Connect (fallback)
   const result = await verifyUserMFA(username, otp);
 
+  // Log the authentication attempt
+  logAudit(username, 'MFA_VERIFY', `Method: ${result.method || 'N/A'}, Success: ${result.success}`, result.success);
+
   if (result.success) {
-    res.json({ success: true, message: 'Authentication successful', username });
+    res.json({
+      success: true,
+      message: 'Authentication successful',
+      username: username,
+      method: result.method,
+      timestamp: new Date().toISOString()
+    });
   } else {
-    res.status(401).json({ success: false, error: result.error });
+    res.status(401).json({
+      success: false,
+      error: result.error,
+      username: username,
+      methods_tried: result.methods_tried || [result.method || 'unknown'],
+      hint: DEMO_MODE ? 'Demo mode enabled - use OTP "000000" to bypass' : 'Ensure user has a valid token assigned in SAS'
+    });
   }
 });
 
