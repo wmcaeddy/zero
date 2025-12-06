@@ -75,7 +75,7 @@ function saveSasCacheToDisk() {
 }
 
 // --- ZERO NETWORKS DATA STORE ---
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = '/app/data'; // Explicit persistent path provided by User/Railway
 const ASSETS_FILE = path.join(DATA_DIR, 'assets.json');
 const POLICIES_FILE = path.join(DATA_DIR, 'policies.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
