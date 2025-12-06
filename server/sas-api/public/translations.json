@@ -68,8 +68,8 @@
   },
   "en": {
     "langName": "English",
-    "title": "STA API Demo",
-    "subtitle": "SCIM User Registration & MobilePASS+ Token Provisioning",
+    "title": "Zero Networks Admin",
+    "subtitle": "Centralized Network Access & Identity Management",
     "statusChecking": "Checking API status...",
     "statusOk": "API Connected - Ready to use",
     "statusNotConfigured": "API Not Configured - Set environment variables in Railway",
