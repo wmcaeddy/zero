@@ -16,10 +16,10 @@ This phase focuses on breaking down the monolith and establishing the new file s
 ## Phase 2: Component Migration & Refactoring
 This phase moves functionality piece-by-piece into the new layout.
 
-- [ ] Task: Refactor "Zero Access" & "Status" into the Home View.
-    - [ ] Subtask: Create `public/js/views/home.js`.
-    - [ ] Subtask: Move logic for verification and connection to this module.
-    - [ ] Subtask: Style the "Zero Access" components to match the new design.
+- [x] Task: Refactor "Zero Access" & "Status" into the Home View. 9a49085
+    - [x] Subtask: Create `public/js/views/home.js`.
+    - [x] Subtask: Move logic for verification and connection to this module.
+    - [x] Subtask: Style the "Zero Access" components to match the new design.
 - [ ] Task: Refactor "Assets" & "Policies" management.
     - [ ] Subtask: Create `public/js/views/assets.js` and `public/js/views/policies.js`.
     - [ ] Subtask: Implement the UI for listing/adding/deleting assets and policies in the new content area.
