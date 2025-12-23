@@ -6,205 +6,220 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zero Networks Admin</title>
   <link rel="stylesheet" href="css/legacy.css">
+  <link rel="stylesheet" href="css/layout.css">
 </head>
 
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="header-left">
-        <h1 data-i18n="title">STA API Demo</h1>
-        <p class="subtitle" data-i18n="subtitle">SCIM User Registration & MobilePASS+ Token Provisioning</p>
-      </div>
-      <div class="lang-selector">
-        <select id="langSelect">
-          <option value="ja">日本語</option>
-          <option value="en">English</option>
-          <option value="hi">हिन्दी</option>
-          <option value="th">ไทย</option>
-          <option value="id">Indonesia</option>
-          <option value="zh-CN">简体中文</option>
-          <option value="zh-TW">繁體中文</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="status" class="status" data-i18n="statusChecking">Checking API status...</div>
-
-    <div class="grid">
-      <!-- Zero Access Card -->
-      <div class="card" style="border-top: 4px solid #ff9800;">
-        <h2><span data-i18n="zeroAccess">Zero Access</span> <span class="badge badge-bsidca">MFA + SPA</span></h2>
-
-        <!-- Step 1: Verify Identity -->
-        <div id="stepVerify">
-          <form id="verifyIdentityForm">
-            <div class="form-group">
-              <label data-i18n="userId">User ID</label>
-              <input type="text" id="verifyUser" required placeholder="username">
-            </div>
-            <div class="form-group">
-              <label data-i18n="otpLabel">OTP Code</label>
-              <input type="text" id="verifyOtp" required placeholder="123456" autocomplete="one-time-code">
-            </div>
-            <button type="submit" class="primary" data-i18n="verifyBtn">Verify & Unlock</button>
-          </form>
-        </div>
-
-        <!-- Step 2: Connect Target (Hidden until verified) -->
-        <div id="stepConnect" style="display: none;">
-          <div class="status ok" style="margin-bottom: 15px;">
-            <strong data-i18n="verifyIdentity">Identity Verified</strong>
+  <div class="app-shell">
+    <nav class="sidebar">
+       <div class="nav-brand">Zero Console</div>
+       <ul class="nav-links">
+         <li class="nav-item"><a href="#" class="nav-link active" data-view="dashboard">Dashboard</a></li>
+         <li class="nav-item"><a href="#" class="nav-link" data-view="assets">Assets</a></li>
+         <li class="nav-item"><a href="#" class="nav-link" data-view="policies">Policies</a></li>
+         <li class="nav-item"><a href="#" class="nav-link" data-view="users">Users</a></li>
+         <li class="nav-item"><a href="#" class="nav-link" data-view="audit">Audit Logs</a></li>
+       </ul>
+    </nav>
+    <main class="main-content">
+      <div class="container">
+        <div class="header">
+          <div class="header-left">
+            <h1 data-i18n="title">STA API Demo</h1>
+            <p class="subtitle" data-i18n="subtitle">SCIM User Registration & MobilePASS+ Token Provisioning</p>
           </div>
-          <form id="connectTargetForm">
-            <div class="form-group">
-              <label data-i18n="targetIp">Target IP</label>
-              <input type="text" id="targetIp" required placeholder="192.168.x.x">
-            </div>
-            <div class="form-group">
-              <label data-i18n="targetPort">Target Port</label>
-              <input type="number" id="targetPort" value="22" required>
-            </div>
-            <button type="submit" data-i18n="connectBtn">Connect (SPA)</button>
-          </form>
-        </div>
-      </div>
-
-      <!-- Assets Card -->
-      <div class="card">
-        <h2><span data-i18n="assets">Assets</span> <span class="badge badge-rest">Inventory</span></h2>
-        <form id="addAssetForm">
-          <div class="form-group">
-            <label data-i18n="assetName">Asset Name</label>
-            <input type="text" id="assetName" required placeholder="Web Server">
-          </div>
-          <div class="form-group">
-            <label data-i18n="assetIp">IP Address</label>
-            <input type="text" id="assetIp" required placeholder="192.168.1.10">
-          </div>
-          <button type="submit" class="secondary" data-i18n="addAsset">Add Asset</button>
-        </form>
-        <div id="assetList" class="user-list" style="margin-top: 15px;">
-          <div class="loading" data-i18n="loading">Loading...</div>
-        </div>
-      </div>
-
-      <!-- Policies Card -->
-      <div class="card">
-        <h2><span data-i18n="policies">Policies</span> <span class="badge badge-bsidca">Rules</span></h2>
-        <form id="addPolicyForm">
-          <div class="form-group">
-            <label data-i18n="policyUser">User</label>
-            <input type="text" id="policyUser" required placeholder="user@example.com or *">
-          </div>
-          <div class="form-group">
-            <label data-i18n="policyAsset">Asset</label>
-            <select id="policyAssetId" required></select>
-          </div>
-          <div class="form-group">
-            <label data-i18n="policyPort">Port</label>
-            <input type="number" id="policyPort" required value="22">
-          </div>
-          <button type="submit" class="secondary" data-i18n="addPolicy">Add Policy</button>
-        </form>
-        <div id="policyList" class="user-list" style="margin-top: 15px;">
-          <div class="loading" data-i18n="loading">Loading...</div>
-        </div>
-      </div>
-
-      <!-- Audit Logs Card -->
-      <div class="card" style="grid-column: 1 / -1;">
-        <h2><span data-i18n="auditLogs">Audit Logs</span> <span class="badge badge-sas">Visibility</span></h2>
-        <div id="auditList" class="user-list" style="max-height: 400px;">
-          <div class="loading" data-i18n="loading">Loading...</div>
-        </div>
-      </div>
-      <div class="card">
-        <h2><span data-i18n="createUser">Create User</span> <span class="badge badge-scim">SCIM</span></h2>
-        <form id="createUserForm">
-          <div class="form-group">
-            <label data-i18n="userId">User ID (Username/Identifier)</label>
-            <input type="text" id="userId" required data-i18n-placeholder="userIdPlaceholder"
-              placeholder="jdoe or john.doe@example.com">
-          </div>
-          <div class="form-group">
-            <label data-i18n="emailAddress">Email Address</label>
-            <input type="email" id="emailAddress" required data-i18n-placeholder="emailPlaceholder"
-              placeholder="john.doe@example.com">
-          </div>
-          <div class="form-group">
-            <label data-i18n="firstName">First Name</label>
-            <input type="text" id="givenName" required data-i18n-placeholder="firstNamePlaceholder" placeholder="John">
-          </div>
-          <div class="form-group">
-            <label data-i18n="lastName">Last Name</label>
-            <input type="text" id="familyName" required data-i18n-placeholder="lastNamePlaceholder" placeholder="Doe">
-          </div>
-          <button type="submit" data-i18n="createUserBtn">Create User</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2><span data-i18n="sasUsers">SAS Users</span> <span class="badge badge-sas">SAS</span></h2>
-        <div class="button-row">
-          <button id="refreshSasUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
-          <button id="createSelectedInSta" class="primary" data-i18n="createInSta">Create Selected in STA</button>
-        </div>
-        <div id="sasUserList" class="user-list">
-          <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
-        </div>
-        <div id="sasPagination" class="pagination" style="display: none;">
-          <button id="sasPrevPage" class="secondary" style="width: auto; padding: 8px 16px;">&lt; <span
-              data-i18n="prev">Prev</span></button>
-          <span id="sasPageInfo" class="page-info">1 / 1</span>
-          <button id="sasNextPage" class="secondary" style="width: auto; padding: 8px 16px;"><span
-              data-i18n="next">Next</span> &gt;</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2><span data-i18n="staUsers">STA Users</span> <span class="badge badge-scim">SCIM</span></h2>
-        <button id="refreshUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
-        <div id="userList" class="user-list">
-          <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2><span data-i18n="provisionToken">Provision Token</span> <span class="badge badge-bsidca">BSIDCA</span></h2>
-        <form id="provisionTokenForm">
-          <div class="form-group">
-            <label data-i18n="usernameEmail">Username / Email</label>
-            <input type="text" id="tokenUserName" required data-i18n-placeholder="usernameEmailPlaceholder"
-              placeholder="user@example.com">
-          </div>
-          <div class="form-group">
-            <label data-i18n="tokenType">Token Type</label>
-            <select id="tokenType">
-              <option value="MobilePASS" data-i18n="tokenMobilepass">MobilePASS (MobilePASS+ App)</option>
-              <option value="Software" data-i18n="tokenSoftware">Software (Generic TOTP)</option>
-              <option value="GoogleAuthenticator" data-i18n="tokenGoogle">Google Authenticator</option>
-              <option value="SMS" data-i18n="tokenSms">SMS</option>
-              <option value="Oath" data-i18n="tokenOath">OATH</option>
-              <option value="Password" data-i18n="tokenPassword">Password</option>
+          <div class="lang-selector">
+            <select id="langSelect">
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+              <option value="hi">हिन्दी</option>
+              <option value="th">ไทย</option>
+              <option value="id">Indonesia</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁體中文</option>
             </select>
           </div>
-          <div class="form-group">
-            <label data-i18n="descriptionOptional">Description (optional)</label>
-            <input type="text" id="tokenDescription" data-i18n-placeholder="descriptionPlaceholder"
-              placeholder="Token description">
+        </div>
+
+        <div id="status" class="status" data-i18n="statusChecking">Checking API status...</div>
+
+        <div class="grid">
+          <!-- Zero Access Card -->
+          <div class="card" style="border-top: 4px solid #ff9800;">
+            <h2><span data-i18n="zeroAccess">Zero Access</span> <span class="badge badge-bsidca">MFA + SPA</span></h2>
+
+            <!-- Step 1: Verify Identity -->
+            <div id="stepVerify">
+              <form id="verifyIdentityForm">
+                <div class="form-group">
+                  <label data-i18n="userId">User ID</label>
+                  <input type="text" id="verifyUser" required placeholder="username">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="otpLabel">OTP Code</label>
+                  <input type="text" id="verifyOtp" required placeholder="123456" autocomplete="one-time-code">
+                </div>
+                <button type="submit" class="primary" data-i18n="verifyBtn">Verify & Unlock</button>
+              </form>
+            </div>
+
+            <!-- Step 2: Connect Target (Hidden until verified) -->
+            <div id="stepConnect" style="display: none;">
+              <div class="status ok" style="margin-bottom: 15px;">
+                <strong data-i18n="verifyIdentity">Identity Verified</strong>
+              </div>
+              <form id="connectTargetForm">
+                <div class="form-group">
+                  <label data-i18n="targetIp">Target IP</label>
+                  <input type="text" id="targetIp" required placeholder="192.168.x.x">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="targetPort">Target Port</label>
+                  <input type="number" id="targetPort" value="22" required>
+                </div>
+                <button type="submit" data-i18n="connectBtn">Connect (SPA)</button>
+              </form>
+            </div>
           </div>
-          <button type="submit" data-i18n="provisionTokenBtn">Provision Token</button>
-        </form>
+
+          <!-- Assets Card -->
+          <div class="card">
+            <h2><span data-i18n="assets">Assets</span> <span class="badge badge-rest">Inventory</span></h2>
+            <form id="addAssetForm">
+              <div class="form-group">
+                <label data-i18n="assetName">Asset Name</label>
+                <input type="text" id="assetName" required placeholder="Web Server">
+              </div>
+              <div class="form-group">
+                <label data-i18n="assetIp">IP Address</label>
+                <input type="text" id="assetIp" required placeholder="192.168.1.10">
+              </div>
+              <button type="submit" class="secondary" data-i18n="addAsset">Add Asset</button>
+            </form>
+            <div id="assetList" class="user-list" style="margin-top: 15px;">
+              <div class="loading" data-i18n="loading">Loading...</div>
+            </div>
+          </div>
+
+          <!-- Policies Card -->
+          <div class="card">
+            <h2><span data-i18n="policies">Policies</span> <span class="badge badge-bsidca">Rules</span></h2>
+            <form id="addPolicyForm">
+              <div class="form-group">
+                <label data-i18n="policyUser">User</label>
+                <input type="text" id="policyUser" required placeholder="user@example.com or *">
+              </div>
+              <div class="form-group">
+                <label data-i18n="policyAsset">Asset</label>
+                <select id="policyAssetId" required></select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="policyPort">Port</label>
+                <input type="number" id="policyPort" required value="22">
+              </div>
+              <button type="submit" class="secondary" data-i18n="addPolicy">Add Policy</button>
+            </form>
+            <div id="policyList" class="user-list" style="margin-top: 15px;">
+              <div class="loading" data-i18n="loading">Loading...</div>
+            </div>
+          </div>
+
+          <!-- Audit Logs Card -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <h2><span data-i18n="auditLogs">Audit Logs</span> <span class="badge badge-sas">Visibility</span></h2>
+            <div id="auditList" class="user-list" style="max-height: 400px;">
+              <div class="loading" data-i18n="loading">Loading...</div>
+            </div>
+          </div>
+          <div class="card">
+            <h2><span data-i18n="createUser">Create User</span> <span class="badge badge-scim">SCIM</span></h2>
+            <form id="createUserForm">
+              <div class="form-group">
+                <label data-i18n="userId">User ID (Username/Identifier)</label>
+                <input type="text" id="userId" required data-i18n-placeholder="userIdPlaceholder"
+                  placeholder="jdoe or john.doe@example.com">
+              </div>
+              <div class="form-group">
+                <label data-i18n="emailAddress">Email Address</label>
+                <input type="email" id="emailAddress" required data-i18n-placeholder="emailPlaceholder"
+                  placeholder="john.doe@example.com">
+              </div>
+              <div class="form-group">
+                <label data-i18n="firstName">First Name</label>
+                <input type="text" id="givenName" required data-i18n-placeholder="firstNamePlaceholder" placeholder="John">
+              </div>
+              <div class="form-group">
+                <label data-i18n="lastName">Last Name</label>
+                <input type="text" id="familyName" required data-i18n-placeholder="lastNamePlaceholder" placeholder="Doe">
+              </div>
+              <button type="submit" data-i18n="createUserBtn">Create User</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2><span data-i18n="sasUsers">SAS Users</span> <span class="badge badge-sas">SAS</span></h2>
+            <div class="button-row">
+              <button id="refreshSasUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
+              <button id="createSelectedInSta" class="primary" data-i18n="createInSta">Create Selected in STA</button>
+            </div>
+            <div id="sasUserList" class="user-list">
+              <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
+            </div>
+            <div id="sasPagination" class="pagination" style="display: none;">
+              <button id="sasPrevPage" class="secondary" style="width: auto; padding: 8px 16px;">&lt; <span
+                  data-i18n="prev">Prev</span></button>
+              <span id="sasPageInfo" class="page-info">1 / 1</span>
+              <button id="sasNextPage" class="secondary" style="width: auto; padding: 8px 16px;"><span
+                  data-i18n="next">Next</span> &gt;</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2><span data-i18n="staUsers">STA Users</span> <span class="badge badge-scim">SCIM</span></h2>
+            <button id="refreshUsers" class="secondary" data-i18n="refreshUsers">Refresh Users</button>
+            <div id="userList" class="user-list">
+              <div class="loading" data-i18n="clickRefresh">Click refresh to load users</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2><span data-i18n="provisionToken">Provision Token</span> <span class="badge badge-bsidca">BSIDCA</span></h2>
+            <form id="provisionTokenForm">
+              <div class="form-group">
+                <label data-i18n="usernameEmail">Username / Email</label>
+                <input type="text" id="tokenUserName" required data-i18n-placeholder="usernameEmailPlaceholder"
+                  placeholder="user@example.com">
+              </div>
+              <div class="form-group">
+                <label data-i18n="tokenType">Token Type</label>
+                <select id="tokenType">
+                  <option value="MobilePASS" data-i18n="tokenMobilepass">MobilePASS (MobilePASS+ App)</option>
+                  <option value="Software" data-i18n="tokenSoftware">Software (Generic TOTP)</option>
+                  <option value="GoogleAuthenticator" data-i18n="tokenGoogle">Google Authenticator</option>
+                  <option value="SMS" data-i18n="tokenSms">SMS</option>
+                  <option value="Oath" data-i18n="tokenOath">OATH</option>
+                  <option value="Password" data-i18n="tokenPassword">Password</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="descriptionOptional">Description (optional)</label>
+                <input type="text" id="tokenDescription" data-i18n-placeholder="descriptionPlaceholder"
+                  placeholder="Token description">
+              </div>
+              <button type="submit" data-i18n="provisionTokenBtn">Provision Token</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="debug card">
+          <h2 data-i18n="debugOutput">Debug Output</h2>
+          <div id="debugOutput" class="debug-content" data-i18n="debugPlaceholder">API responses will appear here...</div>
+        </div>
       </div>
-    </div>
-
-    <div class="debug card">
-      <h2 data-i18n="debugOutput">Debug Output</h2>
-      <div id="debugOutput" class="debug-content" data-i18n="debugPlaceholder">API responses will appear here...</div>
-    </div>
+    </main>
   </div>
-
   <script src="js/legacy.js"></script>
+  <script src="js/navigation.js"></script>
 </body>
 
 </html>
