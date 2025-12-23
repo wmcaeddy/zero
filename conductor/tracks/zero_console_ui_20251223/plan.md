@@ -13,7 +13,7 @@ This phase focuses on breaking down the monolith and establishing the new file s
     - [x] Subtask: Implement navigation switching logic in `public/js/navigation.js`.
 - [x] Task: Conductor - User Manual Verification 'Structure & Foundation' (Protocol in workflow.md) 161833c
 
-## Phase 2: Component Migration & Refactoring
+## Phase 2: Component Migration & Refactoring [checkpoint: 35fff0b]
 This phase moves functionality piece-by-piece into the new layout.
 
 - [x] Task: Refactor "Zero Access" & "Status" into the Home View. 9a49085
@@ -29,7 +29,7 @@ This phase moves functionality piece-by-piece into the new layout.
 - [x] Task: Refactor "Audit Logs". 36c5950
     - [x] Subtask: Create `public/js/views/audit.js`.
     - [x] Subtask: Implement the audit log viewer.
-- [ ] Task: Conductor - User Manual Verification 'Component Migration & Refactoring' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Component Migration & Refactoring' (Protocol in workflow.md) 35fff0b
 
 ## Phase 3: Visual Polish & Responsiveness
 This phase focuses on the look and feel and mobile support.
