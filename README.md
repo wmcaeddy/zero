@@ -222,9 +222,6 @@ BSIDCA_Endpoint_Url=https://cloud.eu.safenetid.com/bsidca/BSIDCA.asmx
 BSIDCA_Email=operator@yourdomain.com
 BSIDCA_Password=<operator_otp>
 ORGANIZATION=YourOrg
-
-# Demo mode (optional - allows OTP "000000" for testing)
-DEMO_MODE=true
 ```
 
 ### Token Provisioning

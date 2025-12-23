@@ -46,9 +46,48 @@ install_fwknop() {
 
     case $OS in
         debian)
-            sudo apt-get update
-            sudo apt-get install -y fwknop-client
-            ;;
+            #!/bin/bash
+
+# Zero Agent Installer (Ubuntu/Debian)
+
+set -e
+
+# Prompt for Admin URL during install
+read -p "Enter Zero Admin System URL [https://zer0.up.railway.app]: " ADMIN_URL
+ADMIN_URL=${ADMIN_URL:-https://zer0.up.railway.app}
+
+echo "Installing Zero Agent..."
+echo "Admin URL: $ADMIN_URL"
+
+# 1. Update and install dependencies
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip fwknop-client fwknop-server iptables
+
+# 2. Install Python dependencies
+echo "Installing Python requirements..."
+# Try converting to pip3 install with break-system-packages directly or use apt
+# For Ubuntu 24.04 (Noble), we should strictly use apt key packages if available or break for this user script
+sudo apt-get install -y python3-flask python3-requests || pip3 install requests flask --break-system-packages
+
+# 3. Setup client directory
+INSTALL_DIR="/opt/zero-agent"
+sudo mkdir -p "$INSTALL_DIR"
+sudo cp client.py config.py api.py firewall.py "$INSTALL_DIR/"
+sudo chmod +x "$INSTALL_DIR/client.py"
+
+# Pre-configure config.json
+CONFIG_FILE="/root/.zero-client/config.json"
+sudo mkdir -p "/root/.zero-client"
+echo "{\"admin_url\": \"$ADMIN_URL\", \"username\": null}" | sudo tee "$CONFIG_FILE" > /dev/null
+
+# 4. Create symlink
+sudo ln -sf "$INSTALL_DIR/client.py" /usr/local/bin/zero-agent
+
+echo ""
+echo "Installation Complete!"
+echo "Run 'sudo zero-agent register' to add this host to the Admin System."
+echo "Run 'sudo zero-agent daemon' to start protection."
+           ;;
         fedora)
             sudo dnf install -y fwknop
             ;;
