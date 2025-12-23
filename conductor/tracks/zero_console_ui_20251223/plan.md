@@ -3,10 +3,10 @@
 ## Phase 1: Structure & Foundation
 This phase focuses on breaking down the monolith and establishing the new file structure.
 
-- [ ] Task: Create new directory structure (`public/css`, `public/js`) and move existing inline CSS/JS to separate files.
-    - [ ] Subtask: Extract CSS to `public/css/legacy.css`.
-    - [ ] Subtask: Extract JS to `public/js/legacy.js`.
-    - [ ] Subtask: Update `index.html` to link these files and verify functionality remains unchanged.
+- [x] Task: Create new directory structure (`public/css`, `public/js`) and move existing inline CSS/JS to separate files. 9b832ed
+    - [x] Subtask: Extract CSS to `public/css/legacy.css`.
+    - [x] Subtask: Extract JS to `public/js/legacy.js`.
+    - [x] Subtask: Update `index.html` to link these files and verify functionality remains unchanged.
 - [ ] Task: Create the new Dashboard Shell (Sidebar + Main Content Area).
     - [ ] Subtask: Create `public/css/layout.css` for grid/flex layout.
     - [ ] Subtask: Implement Sidebar HTML structure in `index.html`.
