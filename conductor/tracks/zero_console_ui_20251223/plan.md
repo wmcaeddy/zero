@@ -23,9 +23,9 @@ This phase moves functionality piece-by-piece into the new layout.
 - [x] Task: Refactor "Assets" & "Policies" management. 81a0518
     - [x] Subtask: Create `public/js/views/assets.js` and `public/js/views/policies.js`.
     - [x] Subtask: Implement the UI for listing/adding/deleting assets and policies in the new content area.
-- [ ] Task: Refactor "User Management" (SCIM, SAS, Provisioning).
-    - [ ] Subtask: Create `public/js/views/users.js`.
-    - [ ] Subtask: Consolidate SCIM, SAS, and Token Provisioning into a unified "Users" section with tabs or sub-views.
+- [x] Task: Refactor "User Management" (SCIM, SAS, Provisioning). 1e8c73a
+    - [x] Subtask: Create `public/js/views/users.js`.
+    - [x] Subtask: Consolidate SCIM, SAS, and Token Provisioning into a unified "Users" section with tabs or sub-views.
 - [ ] Task: Refactor "Audit Logs".
     - [ ] Subtask: Create `public/js/views/audit.js`.
     - [ ] Subtask: Implement the audit log viewer.
