@@ -1,6 +1,6 @@
 # Plan: Modernize Zero Console UI
 
-## Phase 1: Structure & Foundation
+## Phase 1: Structure & Foundation [checkpoint: 161833c]
 This phase focuses on breaking down the monolith and establishing the new file structure.
 
 - [x] Task: Create new directory structure (`public/css`, `public/js`) and move existing inline CSS/JS to separate files. 9b832ed
@@ -11,7 +11,7 @@ This phase focuses on breaking down the monolith and establishing the new file s
     - [x] Subtask: Create `public/css/layout.css` for grid/flex layout.
     - [x] Subtask: Implement Sidebar HTML structure in `index.html`.
     - [x] Subtask: Implement navigation switching logic in `public/js/navigation.js`.
-- [ ] Task: Conductor - User Manual Verification 'Structure & Foundation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Structure & Foundation' (Protocol in workflow.md) 161833c
 
 ## Phase 2: Component Migration & Refactoring
 This phase moves functionality piece-by-piece into the new layout.
