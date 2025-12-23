@@ -7,10 +7,10 @@ This phase focuses on breaking down the monolith and establishing the new file s
     - [x] Subtask: Extract CSS to `public/css/legacy.css`.
     - [x] Subtask: Extract JS to `public/js/legacy.js`.
     - [x] Subtask: Update `index.html` to link these files and verify functionality remains unchanged.
-- [ ] Task: Create the new Dashboard Shell (Sidebar + Main Content Area).
-    - [ ] Subtask: Create `public/css/layout.css` for grid/flex layout.
-    - [ ] Subtask: Implement Sidebar HTML structure in `index.html`.
-    - [ ] Subtask: Implement navigation switching logic in `public/js/navigation.js`.
+- [x] Task: Create the new Dashboard Shell (Sidebar + Main Content Area). 0767088
+    - [x] Subtask: Create `public/css/layout.css` for grid/flex layout.
+    - [x] Subtask: Implement Sidebar HTML structure in `index.html`.
+    - [x] Subtask: Implement navigation switching logic in `public/js/navigation.js`.
 - [ ] Task: Conductor - User Manual Verification 'Structure & Foundation' (Protocol in workflow.md)
 
 ## Phase 2: Component Migration & Refactoring
