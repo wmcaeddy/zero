@@ -20,9 +20,9 @@ This phase moves functionality piece-by-piece into the new layout.
     - [x] Subtask: Create `public/js/views/home.js`.
     - [x] Subtask: Move logic for verification and connection to this module.
     - [x] Subtask: Style the "Zero Access" components to match the new design.
-- [ ] Task: Refactor "Assets" & "Policies" management.
-    - [ ] Subtask: Create `public/js/views/assets.js` and `public/js/views/policies.js`.
-    - [ ] Subtask: Implement the UI for listing/adding/deleting assets and policies in the new content area.
+- [x] Task: Refactor "Assets" & "Policies" management. 81a0518
+    - [x] Subtask: Create `public/js/views/assets.js` and `public/js/views/policies.js`.
+    - [x] Subtask: Implement the UI for listing/adding/deleting assets and policies in the new content area.
 - [ ] Task: Refactor "User Management" (SCIM, SAS, Provisioning).
     - [ ] Subtask: Create `public/js/views/users.js`.
     - [ ] Subtask: Consolidate SCIM, SAS, and Token Provisioning into a unified "Users" section with tabs or sub-views.
