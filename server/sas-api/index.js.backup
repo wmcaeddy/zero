@@ -1,0 +1,2405 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Password protection
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+
+// JWT Configuration
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const JWT_EXPIRY = parseInt(process.env.JWT_EXPIRY || '3600', 10); // Default: 1 hour
+
+// Log warning if using auto-generated JWT secret
+if (!process.env.JWT_SECRET) {
+  console.warn('[JWT] WARNING: JWT_SECRET not set, using auto-generated secret (not suitable for production with multiple instances)');
+  console.warn('[JWT] Set JWT_SECRET environment variable for production deployments');
+}
+
+// Environment variables for STA API
+const SCIM_API_URL = process.env.SCIM_API_Endpoint_Url || '';
+const API_KEY = process.env.API_KEY || '';
+// BSIDCA SOAP endpoint for token provisioning
+const BSIDCA_URL = process.env.BSIDCA_Endpoint_Url || 'https://cloud.eu.safenetid.com/bsidca/BSIDCA.asmx';
+const BSIDCA_EMAIL = process.env.BSIDCA_Email || '';  // Operator email for authentication
+const BSIDCA_USER = process.env.BSIDCA_User || '';    // Operator username
+const BSIDCA_PASSWORD = process.env.BSIDCA_Password || '';
+const ORGANIZATION = process.env.ORGANIZATION || '';
+
+// SAS (Local SafeNet Authentication Service) environment variables
+const SAS_URL = process.env.SAS_Endpoint_Url || '';
+const SAS_USER = process.env.SAS_User || '';
+const SAS_PASSWORD = process.env.SAS_Password || '';
+const SAS_ORGANIZATION = process.env.SAS_ORGANIZATION || '';
+
+// BSIDCA session management
+let bsidcaSessionCookie = null;
+let bsidcaSessionExpiry = null;
+
+// SAS session management
+let sasSessionCookie = null;
+let sasSessionExpiry = null;
+
+// Persistent storage configuration
+const PERSISTENT_DATA_PATH = '/app/data';
+const SAS_CACHE_FILE = path.join(PERSISTENT_DATA_PATH, 'sas_users_cache.json');
+
+// Check if persistent storage is available
+function isPersistentStorageAvailable() {
+  try {
+    if (fs.existsSync(PERSISTENT_DATA_PATH)) {
+      // Test write access
+      const testFile = path.join(PERSISTENT_DATA_PATH, '.write_test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.log('Persistent storage not available:', err.message);
+    return false;
+  }
+}
+
+// Save SAS cache to persistent storage
+function saveSasCacheToDisk() {
+  if (!isPersistentStorageAvailable()) return false;
+
+  try {
+    const cacheData = {
+      users: sasUsersCache.users,
+      usersWithDetails: sasUsersCache.usersWithDetails,
+      timestamp: sasUsersCache.timestamp,
+      detailsFetched: sasUsersCache.detailsFetched,
+      organization: SAS_ORGANIZATION
+    };
+    fs.writeFileSync(SAS_CACHE_FILE, JSON.stringify(cacheData, null, 2));
+    console.log(`SAS cache saved to disk: ${sasUsersCache.usersWithDetails.length} users`);
+    return true;
+  } catch (err) {
+    console.log('Failed to save SAS cache to disk:', err.message);
+    return false;
+  }
+}
+
+// --- ZERO NETWORKS DATA STORE ---
+const DATA_DIR = '/app/data'; // Explicit persistent path provided by User/Railway
+const ASSETS_FILE = path.join(DATA_DIR, 'assets.json');
+const POLICIES_FILE = path.join(DATA_DIR, 'policies.json');
+const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
+
+// Ensure data dir exists (redundant if mkdir run, but safe)
+if (!fs.existsSync(DATA_DIR)) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { }
+}
+
+// --- INPUT VALIDATION UTILITIES ---
+const InputValidator = {
+  /**
+   * Validate email format
+   * @param {string} email - Email address to validate
+   * @returns {boolean} - True if valid email format
+   */
+  isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    // RFC 5322 simplified email regex
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    return emailRegex.test(email) && email.length <= 254;
+  },
+
+  /**
+   * Validate username format
+   * Allows alphanumeric characters, dots, underscores, hyphens
+   * Length: 1-64 characters
+   * @param {string} username - Username to validate
+   * @returns {boolean} - True if valid username format
+   */
+  isValidUsername(username) {
+    if (!username || typeof username !== 'string') return false;
+    const usernameRegex = /^[a-zA-Z0-9._-]{1,64}$/;
+    return usernameRegex.test(username);
+  },
+
+  /**
+   * Validate OTP format - exactly 6 digits
+   * @param {string} otp - OTP code to validate
+   * @returns {boolean} - True if exactly 6 digits
+   */
+  isValidOtp(otp) {
+    if (!otp || typeof otp !== 'string') return false;
+    return /^\d{6}$/.test(otp);
+  },
+
+  /**
+   * Validate IPv4 address format
+   * @param {string} ip - IP address to validate
+   * @returns {boolean} - True if valid IPv4 address
+   */
+  isValidIpAddress(ip) {
+    if (!ip || typeof ip !== 'string') return false;
+    const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return ipRegex.test(ip);
+  },
+
+  /**
+   * Validate port number (1-65535)
+   * @param {number|string} port - Port number to validate
+   * @returns {boolean} - True if valid port number
+   */
+  isValidPort(port) {
+    const portNum = typeof port === 'string' ? parseInt(port, 10) : port;
+    return Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
+  },
+
+  /**
+   * Validate hostname format
+   * Allows alphanumeric, dots, hyphens
+   * @param {string} hostname - Hostname to validate
+   * @returns {boolean} - True if valid hostname format
+   */
+  isValidHostname(hostname) {
+    if (!hostname || typeof hostname !== 'string') return false;
+    if (hostname.length > 253) return false;
+    const hostnameRegex = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*$/;
+    return hostnameRegex.test(hostname);
+  },
+
+  /**
+   * Sanitize string - trim whitespace and limit length
+   * @param {string} str - String to sanitize
+   * @param {number} maxLength - Maximum length (default 1000)
+   * @returns {string} - Sanitized string
+   */
+  sanitizeString(str, maxLength = 1000) {
+    if (!str || typeof str !== 'string') return '';
+    return str.trim().substring(0, maxLength);
+  },
+
+  /**
+   * Validate protocol (tcp or udp)
+   * @param {string} protocol - Protocol to validate
+   * @returns {boolean} - True if valid protocol
+   */
+  isValidProtocol(protocol) {
+    if (!protocol || typeof protocol !== 'string') return false;
+    return ['tcp', 'udp'].includes(protocol.toLowerCase());
+  }
+};
+
+// --- JWT UTILITIES (Using Node.js Crypto Module) ---
+
+/**
+ * Base64url encode (URL-safe base64 without padding)
+ * @param {string|Buffer} input - Input to encode
+ * @returns {string} - Base64url encoded string
+ */
+function base64urlEncode(input) {
+  const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input, 'utf8');
+  return buffer
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+/**
+ * Base64url decode
+ * @param {string} input - Base64url encoded string
+ * @returns {string} - Decoded string
+ */
+function base64urlDecode(input) {
+  // Add padding if needed
+  let padded = input;
+  while (padded.length % 4 !== 0) {
+    padded += '=';
+  }
+  // Convert base64url to standard base64
+  const base64 = padded.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(base64, 'base64').toString('utf8');
+}
+
+/**
+ * Generate HMAC-SHA256 signature
+ * @param {string} data - Data to sign
+ * @param {string} secret - Secret key
+ * @returns {string} - Base64url encoded signature
+ */
+function hmacSha256(data, secret) {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(data);
+  return base64urlEncode(hmac.digest());
+}
+
+/**
+ * Generate JWT token
+ * @param {object} payload - JWT payload (must include sub, can include additional claims)
+ * @param {number} expiresIn - Expiration time in seconds (default: JWT_EXPIRY)
+ * @returns {string} - JWT token
+ */
+function generateJWT(payload, expiresIn = JWT_EXPIRY) {
+  const now = Math.floor(Date.now() / 1000);
+
+  // JWT Header
+  const header = {
+    alg: 'HS256',
+    typ: 'JWT'
+  };
+
+  // JWT Payload with standard claims
+  const jwtPayload = {
+    ...payload,
+    iat: now,
+    exp: now + expiresIn
+  };
+
+  // Encode header and payload
+  const encodedHeader = base64urlEncode(JSON.stringify(header));
+  const encodedPayload = base64urlEncode(JSON.stringify(jwtPayload));
+
+  // Create signature
+  const signature = hmacSha256(`${encodedHeader}.${encodedPayload}`, JWT_SECRET);
+
+  // Combine to create JWT
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+/**
+ * Verify JWT token
+ * @param {string} token - JWT token to verify
+ * @returns {object|null} - Decoded payload if valid, null if invalid
+ */
+function verifyJWT(token) {
+  try {
+    // Validate token exists and is a string
+    if (!token || typeof token !== 'string') {
+      return null;
+    }
+
+    // Split token into parts
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const [encodedHeader, encodedPayload, signature] = parts;
+
+    // Verify signature
+    const expectedSignature = hmacSha256(`${encodedHeader}.${encodedPayload}`, JWT_SECRET);
+    if (signature !== expectedSignature) {
+      console.log('[JWT] Invalid signature');
+      return null;
+    }
+
+    // Decode payload
+    const payload = JSON.parse(base64urlDecode(encodedPayload));
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.log('[JWT] Token expired');
+      return null;
+    }
+
+    return payload;
+  } catch (err) {
+    console.error('[JWT] Verification error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * JWT Verification Middleware
+ * Extracts and verifies JWT from Authorization header
+ * Attaches decoded user info to req.user
+ */
+function verifyJwtMiddleware(req, res, next) {
+  // Extract token from Authorization header
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required',
+      message: 'Missing or invalid Authorization header. Expected format: "Authorization: Bearer <token>"'
+    });
+  }
+
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+  // Verify token
+  const payload = verifyJWT(token);
+
+  if (!payload) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired token',
+      message: 'The provided JWT token is invalid or has expired. Please authenticate again.'
+    });
+  }
+
+  // Attach user info to request
+  req.user = payload;
+
+  // Continue to next middleware/route
+  next();
+}
+
+// Helper to read/write JSON
+function readJson(file) {
+  try {
+    if (!fs.existsSync(file)) return [];
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) { return []; }
+}
+
+function writeJson(file, data) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    return true;
+  } catch (e) { return false; }
+}
+
+// API: Assets
+app.get('/api/assets', (req, res) => {
+  res.json({ success: true, data: readJson(ASSETS_FILE) });
+});
+
+app.post('/api/assets', verifyJwtMiddleware, (req, res) => {
+  const { name, ip_address, hostname, os, notes } = req.body;
+
+  // Validate required fields
+  if (!name || (!ip_address && !hostname)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Name and either ip_address or hostname required'
+    });
+  }
+
+  // Validate IP address format if provided
+  if (ip_address && !InputValidator.isValidIpAddress(ip_address)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid IP address format. Must be a valid IPv4 address (e.g., 192.168.1.1)',
+      provided: ip_address
+    });
+  }
+
+  // Validate hostname format if provided
+  if (hostname && !InputValidator.isValidHostname(hostname)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid hostname format. Must be a valid hostname (alphanumeric, dots, hyphens)',
+      provided: hostname
+    });
+  }
+
+  // Sanitize string fields
+  const sanitizedName = InputValidator.sanitizeString(name, 255);
+  const sanitizedOs = InputValidator.sanitizeString(os || 'Linux', 100);
+  const sanitizedNotes = InputValidator.sanitizeString(notes || '', 1000);
+
+  const assets = readJson(ASSETS_FILE);
+  const newAsset = {
+    id: Date.now().toString(),
+    name: sanitizedName,
+    ip: ip_address || '',
+    hostname: hostname || '',
+    os: sanitizedOs,
+    notes: sanitizedNotes,
+    created: new Date()
+  };
+  assets.push(newAsset);
+  writeJson(ASSETS_FILE, assets);
+
+  res.json({ success: true, data: newAsset });
+});
+
+app.delete('/api/assets/:id', verifyJwtMiddleware, (req, res) => {
+  const assets = readJson(ASSETS_FILE);
+  const filtered = assets.filter(a => a.id !== req.params.id);
+  writeJson(ASSETS_FILE, filtered);
+  res.json({ success: true });
+});
+
+// API: Policies
+app.get('/api/policies', (req, res) => {
+  res.json({ success: true, data: readJson(POLICIES_FILE) });
+});
+
+app.post('/api/policies', verifyJwtMiddleware, (req, res) => {
+  const { user_id, asset_id, port, protocol, action } = req.body;
+
+  // Validate required fields
+  if (!asset_id || !port) {
+    return res.status(400).json({
+      success: false,
+      error: 'asset_id and port are required'
+    });
+  }
+
+  // Validate user_id exists in the system (if not wildcard)
+  const userId = user_id || '*';
+  if (userId !== '*') {
+    // User can be email or username
+    const isValidUser = InputValidator.isValidEmail(userId) || InputValidator.isValidUsername(userId);
+    if (!isValidUser) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user_id format. Must be valid email, username, or "*" for wildcard',
+        provided: userId
+      });
+    }
+  }
+
+  // Validate asset_id exists
+  const assets = readJson(ASSETS_FILE);
+  const assetExists = assets.some(a => a.id === asset_id);
+  if (!assetExists) {
+    return res.status(400).json({
+      success: false,
+      error: 'Asset not found. asset_id must reference an existing asset.',
+      provided: asset_id
+    });
+  }
+
+  // Validate port
+  if (!InputValidator.isValidPort(port)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid port number. Must be between 1 and 65535.',
+      provided: port
+    });
+  }
+
+  // Validate protocol if provided
+  const protocolValue = (protocol || 'tcp').toLowerCase();
+  if (!InputValidator.isValidProtocol(protocolValue)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid protocol. Must be "tcp" or "udp".',
+      provided: protocol
+    });
+  }
+
+  const policies = readJson(POLICIES_FILE);
+  const newPolicy = {
+    id: Date.now().toString(),
+    user: userId,
+    assetId: asset_id,
+    port: parseInt(port, 10),
+    protocol: protocolValue,
+    action: action || 'allow',
+    created: new Date()
+  };
+  policies.push(newPolicy);
+  writeJson(POLICIES_FILE, policies);
+
+  res.json({ success: true, data: newPolicy });
+});
+
+app.delete('/api/policies/:id', verifyJwtMiddleware, (req, res) => {
+  const policies = readJson(POLICIES_FILE);
+  const filtered = policies.filter(p => p.id !== req.params.id);
+  writeJson(POLICIES_FILE, filtered);
+  res.json({ success: true });
+});
+
+// Audit Helper
+function logAudit(user, action, details, success) {
+  const logs = readJson(AUDIT_FILE);
+  logs.unshift({
+    timestamp: new Date(),
+    user,
+    action,
+    details,
+    success
+  });
+  // Keep last 1000 logs
+  if (logs.length > 1000) logs.pop();
+  writeJson(AUDIT_FILE, logs);
+}
+
+app.get('/api/audit', (req, res) => {
+  res.json({ success: true, data: readJson(AUDIT_FILE) });
+});
+
+// Load SAS cache from persistent storage
+function loadSasCacheFromDisk() {
+  if (!isPersistentStorageAvailable()) return false;
+
+  try {
+    if (!fs.existsSync(SAS_CACHE_FILE)) {
+      console.log('No SAS cache file found on disk');
+      return false;
+    }
+
+    const cacheData = JSON.parse(fs.readFileSync(SAS_CACHE_FILE, 'utf8'));
+
+    // Validate cache is for same organization
+    if (cacheData.organization !== SAS_ORGANIZATION) {
+      console.log('SAS cache is for different organization, ignoring');
+      return false;
+    }
+
+    // Disk cache has no TTL - persists until explicit refresh
+    const cacheAge = Date.now() - cacheData.timestamp;
+
+    // Restore cache
+    sasUsersCache.users = cacheData.users || [];
+    sasUsersCache.usersWithDetails = cacheData.usersWithDetails || [];
+    sasUsersCache.timestamp = cacheData.timestamp;
+    sasUsersCache.detailsFetched = cacheData.detailsFetched || false;
+
+    console.log(`SAS cache loaded from disk: ${sasUsersCache.usersWithDetails.length} users (${Math.round(cacheAge / 1000)}s old)`);
+    return true;
+  } catch (err) {
+    console.log('Failed to load SAS cache from disk:', err.message);
+    return false;
+  }
+}
+
+// Middleware
+app.use(express.json());
+
+// --- RATE LIMITING MIDDLEWARE ---
+// In-memory rate limiter to prevent brute force attacks
+const rateLimitStore = {
+  byIp: new Map(),      // IP address -> { attempts: number, resetAt: timestamp }
+  byUsername: new Map() // username -> { attempts: number, resetAt: timestamp }
+};
+
+// Cleanup old rate limit entries every 10 minutes to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+
+  // Clean IP records
+  for (const [key, value] of rateLimitStore.byIp.entries()) {
+    if (now > value.resetAt) {
+      rateLimitStore.byIp.delete(key);
+    }
+  }
+
+  // Clean username records
+  for (const [key, value] of rateLimitStore.byUsername.entries()) {
+    if (now > value.resetAt) {
+      rateLimitStore.byUsername.delete(key);
+    }
+  }
+
+  console.log(`[RateLimit] Cleanup: ${rateLimitStore.byIp.size} IPs, ${rateLimitStore.byUsername.size} usernames tracked`);
+}, 10 * 60 * 1000); // 10 minutes
+
+/**
+ * Rate limiting middleware for authentication endpoints
+ * - Limits by IP: 5 attempts per minute
+ * - Limits by username: 10 attempts per 5 minutes
+ */
+const authRateLimiter = (req, res, next) => {
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+  const { username } = req.body;
+
+  const now = Date.now();
+
+  // Check IP-based rate limit (5 attempts per minute)
+  const ipLimit = 5;
+  const ipWindow = 60 * 1000; // 1 minute
+
+  let ipRecord = rateLimitStore.byIp.get(clientIp);
+  if (!ipRecord || now > ipRecord.resetAt) {
+    // Create new record or reset expired one
+    ipRecord = { attempts: 0, resetAt: now + ipWindow };
+    rateLimitStore.byIp.set(clientIp, ipRecord);
+  }
+
+  ipRecord.attempts++;
+
+  if (ipRecord.attempts > ipLimit) {
+    const retryAfter = Math.ceil((ipRecord.resetAt - now) / 1000);
+    console.log(`[RateLimit] IP ${clientIp} exceeded limit: ${ipRecord.attempts}/${ipLimit}`);
+
+    res.setHeader('Retry-After', retryAfter);
+    return res.status(429).json({
+      success: false,
+      error: 'Too many authentication attempts',
+      message: `Rate limit exceeded. Please try again in ${retryAfter} seconds.`,
+      retryAfter: retryAfter,
+      limitType: 'ip',
+      limit: `${ipLimit} attempts per minute`
+    });
+  }
+
+  // Check username-based rate limit (10 attempts per 5 minutes)
+  if (username) {
+    const usernameLimit = 10;
+    const usernameWindow = 5 * 60 * 1000; // 5 minutes
+
+    let usernameRecord = rateLimitStore.byUsername.get(username);
+    if (!usernameRecord || now > usernameRecord.resetAt) {
+      // Create new record or reset expired one
+      usernameRecord = { attempts: 0, resetAt: now + usernameWindow };
+      rateLimitStore.byUsername.set(username, usernameRecord);
+    }
+
+    usernameRecord.attempts++;
+
+    if (usernameRecord.attempts > usernameLimit) {
+      const retryAfter = Math.ceil((usernameRecord.resetAt - now) / 1000);
+      console.log(`[RateLimit] Username ${username} exceeded limit: ${usernameRecord.attempts}/${usernameLimit}`);
+
+      res.setHeader('Retry-After', retryAfter);
+      return res.status(429).json({
+        success: false,
+        error: 'Too many authentication attempts for this account',
+        message: `Rate limit exceeded for this username. Please try again in ${retryAfter} seconds.`,
+        retryAfter: retryAfter,
+        limitType: 'username',
+        limit: `${usernameLimit} attempts per 5 minutes`
+      });
+    }
+  }
+
+  // Rate limit checks passed
+  next();
+};
+
+// Password protection middleware
+const authMiddleware = (req, res, next) => {
+  // Skip auth if no password is set
+  if (!APP_PASSWORD) {
+    return next();
+  }
+
+  // Allow health check without auth
+  if (req.path === '/health') {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="STA API Demo"');
+    return res.status(401).send('Authentication required');
+  }
+
+  const credentials = Buffer.from(authHeader.split(' ')[1], 'base64').toString();
+  const [username, password] = credentials.split(':');
+
+  // Accept any username, just check the password
+  if (password === APP_PASSWORD) {
+    return next();
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="STA API Demo"');
+  return res.status(401).send('Invalid credentials');
+};
+
+// Apply auth middleware to all routes
+app.use(authMiddleware);
+
+app.use(express.static('public'));
+
+// Helper to mask sensitive data in headers
+function maskSensitiveHeaders(headers) {
+  const masked = { ...headers };
+  if (masked.Authorization) {
+    const parts = masked.Authorization.split(' ');
+    if (parts.length === 2) {
+      masked.Authorization = `${parts[0]} ${parts[1].substring(0, 8)}...***`;
+    }
+  }
+  if (masked.Cookie) {
+    masked.Cookie = masked.Cookie.substring(0, 20) + '...***';
+  }
+  return masked;
+}
+
+// Helper to mask sensitive data in SOAP envelope
+function maskSoapEnvelope(soapXml) {
+  // Mask password/OTP in Connect request
+  let masked = soapXml.replace(
+    /(<OTP>)(.*?)(<\/OTP>)/g,
+    '$1***$3'
+  );
+  // Mask cookie values if present
+  masked = masked.replace(
+    /(ASP\.NET_SessionId=)([^;]+)/g,
+    '$1***'
+  );
+  return masked;
+}
+
+// Helper to safely parse JSON response
+async function safeParseResponse(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { rawResponse: text, parseError: e.message };
+  }
+}
+
+// Helper to parse SOAP response and extract result
+function parseSoapResponse(xmlText, methodName) {
+  try {
+    // Extract the response element
+    const resultPattern = new RegExp(`<${methodName}Response[^>]*>([\\s\\S]*?)<\/${methodName}Response>`, 'i');
+    const match = xmlText.match(resultPattern);
+
+    if (!match) {
+      return { error: 'Could not parse SOAP response', rawResponse: xmlText };
+    }
+
+    const responseBody = match[1];
+
+    // Extract all elements from the response
+    const elements = {};
+    const elementPattern = /<(\w+)>([^<]*)<\/\1>/g;
+    let elementMatch;
+
+    while ((elementMatch = elementPattern.exec(responseBody)) !== null) {
+      const [, key, value] = elementMatch;
+      elements[key] = value;
+    }
+
+    return { parsed: elements, rawResponse: xmlText };
+  } catch (e) {
+    return { error: e.message, rawResponse: xmlText };
+  }
+}
+
+// Helper to extract array elements from SOAP response
+function parseSoapArrayResponse(xmlText, methodName, arrayElementName) {
+  try {
+    const resultPattern = new RegExp(`<${methodName}Response[^>]*>([\\s\\S]*?)<\/${methodName}Response>`, 'i');
+    const match = xmlText.match(resultPattern);
+
+    if (!match) {
+      return { error: 'Could not parse SOAP response', rawResponse: xmlText };
+    }
+
+    const responseBody = match[1];
+    const items = [];
+
+    // Extract array elements
+    const elementPattern = new RegExp(`<${arrayElementName}>([^<]*)<\/${arrayElementName}>`, 'g');
+    let elementMatch;
+
+    while ((elementMatch = elementPattern.exec(responseBody)) !== null) {
+      items.push(elementMatch[1]);
+    }
+
+    return { parsed: items, rawResponse: xmlText };
+  } catch (e) {
+    return { error: e.message, rawResponse: xmlText };
+  }
+}
+
+// Helper to parse DataTable XML response (used by GetUsers)
+function parseDataTableResponse(xmlText) {
+  try {
+    const users = [];
+
+    // Extract each user row from the diffgram - can be <users> or <Table> elements
+    const rowPattern = /<users[^>]*>([\s\S]*?)<\/users>|<Table[^>]*>([\s\S]*?)<\/Table>/g;
+    let rowMatch;
+
+    while ((rowMatch = rowPattern.exec(xmlText)) !== null) {
+      const rowContent = rowMatch[1] || rowMatch[2];
+      const user = {};
+
+      // Extract common user fields (case-insensitive)
+      const fields = ['userid', 'username', 'firstname', 'lastname', 'email', 'mobile', 'locked', 'container', 'containername', 'authmethod', 'authstate', 'accountStatus'];
+      fields.forEach(field => {
+        const fieldPattern = new RegExp(`<${field}>([^<]*)<\/${field}>`, 'i');
+        const fieldMatch = rowContent.match(fieldPattern);
+        if (fieldMatch) {
+          user[field.toLowerCase()] = fieldMatch[1];
+        }
+      });
+
+      // Normalize: userid -> username if username not present
+      if (user.userid && !user.username) {
+        user.username = user.userid;
+      }
+
+      if (user.username || user.userid) {
+        users.push(user);
+      }
+    }
+
+    return { users, rawResponse: xmlText };
+  } catch (e) {
+    return { error: e.message, users: [], rawResponse: xmlText };
+  }
+}
+
+// SAS: Authenticate and establish session
+async function connectSAS() {
+  // Check if we have a valid session
+  if (sasSessionCookie && sasSessionExpiry && Date.now() < sasSessionExpiry) {
+    return { success: true, cookie: sasSessionCookie, cached: true };
+  }
+
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return { success: false, error: 'SAS credentials not configured (need SAS_Endpoint_Url, SAS_User, and SAS_Password)' };
+  }
+
+  // Build SOAP envelope for Connect
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <Connect xmlns="http://www.cryptocard.com/blackshield/">
+      <OperatorEmail>${xmlEscape(SAS_USER)}</OperatorEmail>
+      <OTP>${xmlEscape(SAS_PASSWORD)}</OTP>
+    </Connect>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+      },
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseSoapResponse(responseText, 'Connect');
+
+    // Extract session cookie from response headers
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      sasSessionCookie = setCookie.split(';')[0];
+      sasSessionExpiry = Date.now() + (20 * 60 * 1000); // Session valid for 20 minutes
+    }
+
+    const connectResult = parsed.parsed?.ConnectResult || 'UNKNOWN';
+
+    if (connectResult === 'AUTH_SUCCESS') {
+      return {
+        success: true,
+        cookie: sasSessionCookie,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    } else {
+      return {
+        success: false,
+        error: `Authentication failed: ${connectResult}`,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// BSIDCA: Authenticate and establish session
+async function connectBSIDCA() {
+  // Check if we have a valid session
+  if (bsidcaSessionCookie && bsidcaSessionExpiry && Date.now() < bsidcaSessionExpiry) {
+    return { success: true, cookie: bsidcaSessionCookie, cached: true };
+  }
+
+  // Use BSIDCA_EMAIL for operator email, fall back to BSIDCA_USER if not set
+  const operatorEmail = BSIDCA_EMAIL || BSIDCA_USER;
+
+  if (!operatorEmail || !BSIDCA_PASSWORD) {
+    return { success: false, error: 'BSIDCA credentials not configured (need BSIDCA_Email and BSIDCA_Password)' };
+  }
+
+  // Build SOAP envelope for Connect
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <Connect xmlns="http://www.cryptocard.com/blackshield/">
+      <OperatorEmail>${operatorEmail}</OperatorEmail>
+      <OTP>${BSIDCA_PASSWORD}</OTP>
+    </Connect>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const response = await fetch(BSIDCA_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+      },
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseSoapResponse(responseText, 'Connect');
+
+    // Extract session cookie from response headers
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      bsidcaSessionCookie = setCookie.split(';')[0]; // Get just the cookie value
+      bsidcaSessionExpiry = Date.now() + (20 * 60 * 1000); // Session valid for 20 minutes
+    }
+
+    const connectResult = parsed.parsed?.ConnectResult || 'UNKNOWN';
+
+    if (connectResult === 'AUTH_SUCCESS') {
+      return {
+        success: true,
+        cookie: bsidcaSessionCookie,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    } else if (connectResult === 'CHALLENGE') {
+      return {
+        success: false,
+        error: 'Challenge authentication not supported in this demo',
+        result: connectResult,
+        challenge: parsed.parsed?.challenge
+      };
+    } else {
+      return {
+        success: false,
+        error: `Authentication failed: ${connectResult}`,
+        result: connectResult,
+        parsed: parsed.parsed
+      };
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// Health check / status endpoint
+app.get('/api/status', (req, res) => {
+  const persistentAvailable = isPersistentStorageAvailable();
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    configured: {
+      scim: !!(SCIM_API_URL && API_KEY),
+      bsidca: !!((BSIDCA_EMAIL || BSIDCA_USER) && BSIDCA_PASSWORD && ORGANIZATION),
+      sas: !!(SAS_URL && SAS_USER && SAS_PASSWORD && SAS_ORGANIZATION),
+      jwt: !!process.env.JWT_SECRET
+    },
+    endpoints: {
+      scim: SCIM_API_URL || 'NOT SET',
+      bsidca: BSIDCA_URL,
+      sas: SAS_URL || 'NOT SET'
+    },
+    credentials: {
+      bsidca_email: BSIDCA_EMAIL ? 'SET' : 'NOT SET',
+      bsidca_user: BSIDCA_USER ? 'SET' : 'NOT SET',
+      bsidca_password: BSIDCA_PASSWORD ? 'SET' : 'NOT SET',
+      organization: ORGANIZATION ? 'SET' : 'NOT SET',
+      sas_user: SAS_USER ? 'SET' : 'NOT SET',
+      sas_password: SAS_PASSWORD ? 'SET' : 'NOT SET',
+      sas_organization: SAS_ORGANIZATION ? 'SET' : 'NOT SET',
+      jwt_secret: process.env.JWT_SECRET ? 'SET (secure)' : 'NOT SET (using auto-generated - not suitable for multi-instance deployments)'
+    },
+    authentication: {
+      methods: ['TestToken (primary - end-user OTP)', 'Connect (fallback - operator auth)'],
+      endpoint: 'POST /api/auth/verify with { username, otp }',
+      sessionManagement: {
+        type: 'JWT',
+        algorithm: 'HS256',
+        expirySeconds: JWT_EXPIRY,
+        refreshEndpoint: 'POST /api/auth/refresh',
+        protectedEndpoints: [
+          'POST /api/network/connect',
+          'POST /api/assets',
+          'DELETE /api/assets/:id',
+          'POST /api/policies',
+          'DELETE /api/policies/:id'
+        ]
+      }
+    },
+    persistentStorage: {
+      available: persistentAvailable,
+      path: PERSISTENT_DATA_PATH,
+      cacheFile: persistentAvailable ? SAS_CACHE_FILE : 'N/A',
+      sasCacheLoaded: sasUsersCache.users.length > 0,
+      sasCachedUsers: sasUsersCache.usersWithDetails.length
+    },
+    note: 'Token provisioning requires BSIDCA SOAP API credentials (operator login)'
+  });
+});
+
+// SCIM: List Users
+app.get('/api/scim/users', async (req, res) => {
+  if (!SCIM_API_URL || !API_KEY) {
+    return res.status(500).json({ error: 'SCIM API not configured' });
+  }
+
+  const requestUrl = `${SCIM_API_URL}Users`;
+  const requestHeaders = {
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
+  try {
+    const response = await fetch(requestUrl, {
+      headers: requestHeaders
+    });
+    const data = await safeParseResponse(response);
+    res.json({
+      success: response.ok,
+      status: response.status,
+      data: data,
+      debug: {
+        request: {
+          method: 'GET',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: null
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SCIM: Create User
+app.post('/api/scim/users', async (req, res) => {
+  if (!SCIM_API_URL || !API_KEY) {
+    return res.status(500).json({ error: 'SCIM API not configured' });
+  }
+
+  const { userId, email, givenName, familyName } = req.body;
+
+  // Build SCIM payload
+  // userName is the unique identifier for the user (required by SCIM)
+  // externalId can be used for external system identifiers
+  // emails array contains the email address(es)
+  const payload = {
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+    userName: userId,  // Use the User ID as the SCIM userName
+    externalId: userId,  // Also set as externalId for reference
+    name: {
+      givenName: givenName,
+      familyName: familyName
+    },
+    emails: [{
+      value: email,
+      type: "work",
+      primary: true
+    }],
+    active: true
+  };
+
+  const requestUrl = `${SCIM_API_URL}Users`;
+  const requestHeaders = {
+    'Content-Type': 'application/scim+json',
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify(payload)
+    });
+    const data = await safeParseResponse(response);
+    res.json({
+      success: response.ok,
+      status: response.status,
+      data: data,
+      debug: {
+        request: {
+          method: 'POST',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: payload,
+          note: 'userName and externalId both set to userId, email stored separately in emails array'
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SCIM: Delete User
+app.delete('/api/scim/users/:id', async (req, res) => {
+  if (!SCIM_API_URL || !API_KEY) {
+    return res.status(500).json({ error: 'SCIM API not configured' });
+  }
+
+  const requestUrl = `${SCIM_API_URL}Users/${req.params.id}`;
+  const requestHeaders = {
+    'Accept': 'application/scim+json',
+    'Authorization': `Bearer ${API_KEY}`
+  };
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'DELETE',
+      headers: requestHeaders
+    });
+    const data = await safeParseResponse(response);
+    res.json({
+      success: response.ok,
+      status: response.status,
+      data: data,
+      debug: {
+        request: {
+          method: 'DELETE',
+          url: requestUrl,
+          headers: maskSensitiveHeaders(requestHeaders),
+          body: null
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper function to XML-escape strings for SOAP
+function xmlEscape(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// SAS: Get single user details (includes email) with timeout
+async function getSasUserDetails(userName, cookie) {
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUser xmlns="http://www.cryptocard.com/blackshield/">
+      <userName>${xmlEscape(userName)}</userName>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUser>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUser'
+    };
+    if (cookie) {
+      headers['Cookie'] = cookie;
+    }
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    const responseText = await response.text();
+
+    // Extract email and other fields from GetUserResult
+    // Try multiple patterns for email field (different SAS versions may use different casing)
+    const emailMatch = responseText.match(/<Email>([^<]+)<\/Email>/i) ||
+      responseText.match(/<email>([^<]+)<\/email>/i) ||
+      responseText.match(/<EMAIL>([^<]+)<\/EMAIL>/);
+    const mobileMatch = responseText.match(/<Mobile>([^<]+)<\/Mobile>/i);
+    const firstNameMatch = responseText.match(/<FirstName>([^<]+)<\/FirstName>/i);
+    const lastNameMatch = responseText.match(/<Lastname>([^<]+)<\/Lastname>/i) ||
+      responseText.match(/<LastName>([^<]+)<\/LastName>/i);
+
+    const result = {
+      email: emailMatch ? emailMatch[1] : '',
+      mobile: mobileMatch ? mobileMatch[1] : '',
+      firstname: firstNameMatch ? firstNameMatch[1] : '',
+      lastname: lastNameMatch ? lastNameMatch[1] : ''
+    };
+
+    // Log if we found email for debugging
+    if (result.email) {
+      console.log(`GetUser ${userName}: email=${result.email}`);
+    }
+
+    return result;
+  } catch (err) {
+    console.log(`GetUser failed for ${userName}: ${err.message}`);
+    return { email: '', mobile: '', firstname: '', lastname: '' };
+  }
+}
+
+// Helper to process users in batches
+async function processInBatches(items, batchSize, processor) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+// Cache for SAS users list WITH full details (for instant pagination)
+let sasUsersCache = { users: [], usersWithDetails: [], timestamp: 0, cookie: null, detailsFetched: false, fetchingInProgress: false };
+const SAS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Fetch details for specific users
+async function fetchUserDetails(users, cookie) {
+  return await processInBatches(users, 3, async (user) => {
+    const details = await getSasUserDetails(user.username || user.userid, cookie);
+    return {
+      ...user,
+      email: details.email || user.email || '',
+      mobile: details.mobile || user.mobile || '',
+      firstname: details.firstname || user.firstname || '',
+      lastname: details.lastname || user.lastname || ''
+    };
+  });
+}
+
+// Fetch full user list and all details in background
+async function fetchFullUserListInBackground(cookie) {
+  if (sasUsersCache.fetchingInProgress) return;
+  sasUsersCache.fetchingInProgress = true;
+
+  console.log('Background: Fetching full user list...');
+  const startTime = Date.now();
+
+  try {
+    // Fetch full user list
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUsers xmlns="http://www.cryptocard.com/blackshield/">
+      <userName></userName>
+      <lastName></lastName>
+      <authMethod>Any</authMethod>
+      <container></container>
+      <firstRecord>0</firstRecord>
+      <pageSize>1000</pageSize>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUsers>
+  </soap:Body>
+</soap:Envelope>`;
+
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
+    };
+    if (cookie) headers['Cookie'] = cookie;
+
+    const response = await fetch(SAS_URL, { method: 'POST', headers, body: soapEnvelope });
+    const responseText = await response.text();
+    const parsed = parseDataTableResponse(responseText);
+
+    // Update cache with full user list
+    sasUsersCache.users = parsed.users || [];
+    console.log(`Background: Got ${sasUsersCache.users.length} users, now fetching details...`);
+
+    // Keep first page details we already have
+    const existingDetails = sasUsersCache.usersWithDetails;
+
+    // Fetch details for remaining users (skip ones we already have)
+    const remainingUsers = sasUsersCache.users.slice(existingDetails.length);
+    if (remainingUsers.length > 0) {
+      const remainingDetails = await fetchUserDetails(remainingUsers, cookie);
+      sasUsersCache.usersWithDetails = [...existingDetails, ...remainingDetails];
+    }
+
+    sasUsersCache.detailsFetched = true;
+    sasUsersCache.fetchingInProgress = false;
+
+    console.log(`Background: Complete! ${sasUsersCache.usersWithDetails.length} users cached in ${Date.now() - startTime}ms`);
+
+    // Save to persistent storage if available
+    saveSasCacheToDisk();
+  } catch (err) {
+    console.log(`Background fetch failed: ${err.message}`);
+    sasUsersCache.fetchingInProgress = false;
+  }
+}
+
+// SAS: List Users with pagination (instant from cache after first load)
+app.get('/api/sas/users', async (req, res) => {
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return res.status(500).json({ error: 'SAS API not configured' });
+  }
+
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 5;
+  const forceRefresh = req.query.refresh === 'true';
+
+  // Track debug info
+  let debugInfo = { request: null, response: null };
+  let loadedFromDisk = false;
+
+  // INSTANT PATH: Check memory cache first (no network calls)
+  if (sasUsersCache.usersWithDetails.length > 0 && !forceRefresh) {
+    const totalUsers = sasUsersCache.users.length;
+    const totalPages = Math.ceil(totalUsers / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalUsers);
+    const pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+
+    return res.json({
+      success: true,
+      users: pageUsers,
+      pagination: {
+        page, pageSize, totalUsers, totalPages,
+        hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true,
+        hasPrevPage: page > 1
+      },
+      debug: {
+        request: { method: 'MEMORY_CACHE', note: 'Instant from memory cache' },
+        response: { cachedUsers: sasUsersCache.usersWithDetails.length },
+        cacheStatus: {
+          detailsFetched: sasUsersCache.detailsFetched,
+          detailsCached: sasUsersCache.usersWithDetails.length,
+          totalUsers: totalUsers,
+          backgroundFetching: sasUsersCache.fetchingInProgress,
+          persistentStorage: isPersistentStorageAvailable(),
+          loadedFromDisk: false,
+          note: `Memory cache - instant!`
+        }
+      }
+    });
+  }
+
+  // INSTANT PATH: Check disk cache second (fast I/O, no network)
+  if (sasUsersCache.users.length === 0 && !forceRefresh) {
+    loadedFromDisk = loadSasCacheFromDisk();
+    if (loadedFromDisk && sasUsersCache.usersWithDetails.length > 0) {
+      const totalUsers = sasUsersCache.users.length;
+      const totalPages = Math.ceil(totalUsers / pageSize);
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = Math.min(startIndex + pageSize, totalUsers);
+      const pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+
+      return res.json({
+        success: true,
+        users: pageUsers,
+        pagination: {
+          page, pageSize, totalUsers, totalPages,
+          hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true,
+          hasPrevPage: page > 1
+        },
+        debug: {
+          request: {
+            method: 'DISK_CACHE',
+            note: 'Instant from disk cache',
+            cacheFile: SAS_CACHE_FILE,
+            cacheAge: Math.round((Date.now() - sasUsersCache.timestamp) / 1000) + 's'
+          },
+          response: { cachedUsers: sasUsersCache.usersWithDetails.length },
+          cacheStatus: {
+            detailsFetched: sasUsersCache.detailsFetched,
+            detailsCached: sasUsersCache.usersWithDetails.length,
+            totalUsers: totalUsers,
+            backgroundFetching: false,
+            persistentStorage: true,
+            loadedFromDisk: true,
+            note: `Disk cache - instant!`
+          }
+        }
+      });
+    }
+  }
+
+  // SLOW PATH: Need to fetch from API (only when no cache or forceRefresh)
+  // First, authenticate with SAS
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'SAS authentication failed',
+      authError: authResult.error,
+      debug: {
+        request: { method: 'POST', url: SAS_URL, soapAction: 'Connect', note: 'Authentication failed' }
+      }
+    });
+  }
+
+  // Only refresh if explicitly requested or no cache at all
+  const needsRefresh = forceRefresh || sasUsersCache.users.length === 0;
+
+  if (needsRefresh) {
+    // Fetch ONLY first page of users (fast - just 5 users)
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetUsers xmlns="http://www.cryptocard.com/blackshield/">
+      <userName></userName>
+      <lastName></lastName>
+      <authMethod>Any</authMethod>
+      <container></container>
+      <firstRecord>0</firstRecord>
+      <pageSize>${pageSize}</pageSize>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetUsers>
+  </soap:Body>
+</soap:Envelope>`;
+
+    try {
+      const headers = {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/GetUsers'
+      };
+      if (authResult.cookie) headers['Cookie'] = authResult.cookie;
+
+      const response = await fetch(SAS_URL, { method: 'POST', headers, body: soapEnvelope });
+      const responseText = await response.text();
+      const parsed = parseDataTableResponse(responseText);
+
+      // Reset cache with first page only
+      sasUsersCache = {
+        users: parsed.users || [],
+        usersWithDetails: [],
+        timestamp: Date.now(),
+        cookie: authResult.cookie,
+        detailsFetched: false,
+        fetchingInProgress: false
+      };
+
+      debugInfo = {
+        request: {
+          method: 'POST', url: SAS_URL, soapAction: 'GetUsers',
+          headers: maskSensitiveHeaders(headers),
+          parameters: { organization: SAS_ORGANIZATION, authMethod: 'Any', pageSize: pageSize, note: 'First page only for fast display' }
+        },
+        response: { status: response.status, usersFound: parsed.users?.length || 0 }
+      };
+
+      // Fetch details for first page users (fast - only 5 users)
+      const firstPageWithDetails = await fetchUserDetails(sasUsersCache.users, authResult.cookie);
+      sasUsersCache.usersWithDetails = firstPageWithDetails;
+
+      // Start background fetch for FULL user list and remaining details (non-blocking)
+      fetchFullUserListInBackground(authResult.cookie);
+
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  } else {
+    debugInfo = {
+      request: {
+        method: 'CACHE',
+        note: 'Full user data served from cache (instant)',
+        cacheAge: `${Math.round((Date.now() - sasUsersCache.timestamp) / 1000)}s`,
+        detailsCached: sasUsersCache.detailsFetched
+      },
+      response: { cachedUsers: sasUsersCache.usersWithDetails.length }
+    };
+  }
+
+  // Calculate pagination
+  const totalUsers = sasUsersCache.users.length;
+  const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalUsers);
+
+  // Check if we have cached details for this page
+  let pageUsers;
+  const cachedDetailsCount = sasUsersCache.usersWithDetails.length;
+
+  if (startIndex < cachedDetailsCount && endIndex <= cachedDetailsCount) {
+    // Full page available from cache - instant!
+    pageUsers = sasUsersCache.usersWithDetails.slice(startIndex, endIndex);
+    debugInfo.pageSource = 'cache (instant)';
+  } else if (startIndex < cachedDetailsCount) {
+    // Partial page from cache, need to fetch rest
+    const cachedPart = sasUsersCache.usersWithDetails.slice(startIndex);
+    const uncachedUsers = sasUsersCache.users.slice(cachedDetailsCount, endIndex);
+    if (uncachedUsers.length > 0) {
+      const fetchedPart = await fetchUserDetails(uncachedUsers, authResult.cookie);
+      pageUsers = [...cachedPart, ...fetchedPart];
+      sasUsersCache.usersWithDetails = [...sasUsersCache.usersWithDetails, ...fetchedPart];
+    } else {
+      pageUsers = cachedPart;
+    }
+    debugInfo.pageSource = 'partial cache + fetch';
+  } else if (startIndex < totalUsers) {
+    // Page not in cache but within known users, fetch on-demand
+    const uncachedUsers = sasUsersCache.users.slice(startIndex, endIndex);
+    pageUsers = await fetchUserDetails(uncachedUsers, authResult.cookie);
+    debugInfo.pageSource = 'on-demand fetch';
+  } else {
+    // Page beyond current known users (background still fetching)
+    pageUsers = [];
+    debugInfo.pageSource = 'waiting for background fetch';
+  }
+
+  res.json({
+    success: true,
+    users: pageUsers,
+    pagination: {
+      page, pageSize, totalUsers, totalPages,
+      hasNextPage: sasUsersCache.detailsFetched ? page < totalPages : true, // Allow next if still fetching
+      hasPrevPage: page > 1
+    },
+    debug: {
+      ...debugInfo,
+      cacheStatus: {
+        detailsFetched: sasUsersCache.detailsFetched,
+        detailsCached: sasUsersCache.usersWithDetails.length,
+        totalUsers: sasUsersCache.users.length,
+        backgroundFetching: sasUsersCache.fetchingInProgress,
+        persistentStorage: isPersistentStorageAvailable(),
+        loadedFromDisk: loadedFromDisk,
+        note: loadedFromDisk
+          ? `Loaded from disk cache - instant!`
+          : sasUsersCache.detailsFetched
+            ? `All ${totalUsers} users cached - all pages instant`
+            : `${sasUsersCache.usersWithDetails.length}/${totalUsers} cached, background fetching...`
+      }
+    }
+  });
+});
+
+// SAS: Get Containers (to help find correct organization structure)
+app.get('/api/sas/containers', async (req, res) => {
+  if (!SAS_URL || !SAS_USER || !SAS_PASSWORD) {
+    return res.status(500).json({ error: 'SAS API not configured' });
+  }
+
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'SAS authentication failed',
+      authError: authResult.error
+    });
+  }
+
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetContainers xmlns="http://www.cryptocard.com/blackshield/">
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </GetContainers>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetContainers'
+    };
+
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+
+    res.json({
+      success: response.ok,
+      status: response.status,
+      organization: SAS_ORGANIZATION,
+      rawResponse: responseText
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// BSIDCA SOAP: Provision Token (ProvisionUsers method)
+app.post('/api/tokens', async (req, res) => {
+  const { userName, tokenType = 'Software', description = '', organization } = req.body;
+  const org = organization || ORGANIZATION;
+
+  if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
+    return res.json({
+      success: false,
+      error: 'BSIDCA credentials not configured',
+      note: 'Token provisioning requires BSIDCA SOAP API. Set BSIDCA_Email, BSIDCA_Password, and ORGANIZATION environment variables.',
+      documentation: {
+        message: 'The STA REST API does not support token provisioning. You must use the BSIDCA SOAP API.',
+        endpoints: {
+          'ProvisionUsers': 'Provision a list of users with a token',
+          'AssignToken': 'Assign an existing token to a user',
+          'GetMobilePASSProvisioningActivationCode': 'Get activation code for MobilePASS'
+        },
+        validTokenClasses: ['Software', 'Custom', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken', 'MobilePASS', 'GoogleAuthenticator'],
+        note: 'MobilePASS and Software are both valid for software tokens. MobilePASS is specifically for the MobilePASS+ app.',
+        reference: 'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html'
+      },
+      debug: {
+        attempted: {
+          userName,
+          tokenType,
+          organization: org
+        }
+      }
+    });
+  }
+
+  // First, authenticate with BSIDCA
+  const authResult = await connectBSIDCA();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'BSIDCA authentication failed',
+      authError: authResult.error,
+      debug: authResult
+    });
+  }
+
+  // XML-escape all parameters to prevent issues with special characters like @ in email addresses
+  const escapedUserName = xmlEscape(userName);
+  const escapedTokenType = xmlEscape(tokenType);
+  const escapedDescription = xmlEscape(description);
+  const escapedOrg = xmlEscape(org);
+
+  // Build SOAP envelope for ProvisionUsers with correct structure and proper XML escaping
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ProvisionUsers xmlns="http://www.cryptocard.com/blackshield/">
+      <userNames>
+        <string>${escapedUserName}</string>
+      </userNames>
+      <tokenClass>${escapedTokenType}</tokenClass>
+      <description>${escapedDescription}</description>
+      <organization>${escapedOrg}</organization>
+    </ProvisionUsers>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/ProvisionUsers'
+    };
+
+    // Add session cookie if available
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    const response = await fetch(BSIDCA_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseSoapArrayResponse(responseText, 'ProvisionUsers', 'ProvisioningResult');
+
+    // Determine success based on response
+    const results = parsed.parsed || [];
+    const allSuccess = results.length > 0 && results.every(r =>
+      r === 'ProvisionSuccess' || r === 'EmailSent' || r === 'SMSSent'
+    );
+
+    // Check if response was empty
+    if (results.length === 0) {
+      return res.json({
+        success: false,
+        status: response.status,
+        authenticated: authResult.cached ? 'cached_session' : 'new_session',
+        error: 'Empty provisioning response - this usually means the user does not exist in the organization',
+        provisioningResults: results,
+        data: parsed,
+        recommendation: 'Please ensure the user exists in the STA organization before provisioning a token. You can create users via the SCIM API endpoint.',
+        debug: {
+          request: {
+            method: 'POST',
+            url: BSIDCA_URL,
+            headers: maskSensitiveHeaders(headers),
+            soapAction: 'ProvisionUsers',
+            contentType: 'SOAP/XML',
+            soapEnvelope: maskSoapEnvelope(soapEnvelope),
+            parameters: { userName, tokenType, description, organization: org }
+          },
+          response: {
+            status: response.status,
+            statusText: response.statusText,
+            headers: {
+              'content-type': response.headers.get('content-type')
+            },
+            bodyPreview: responseText.substring(0, 500) + '...'
+          }
+        }
+      });
+    }
+
+    res.json({
+      success: response.ok && allSuccess,
+      status: response.status,
+      authenticated: authResult.cached ? 'cached_session' : 'new_session',
+      provisioningResults: results,
+      data: parsed,
+      debug: {
+        request: {
+          method: 'POST',
+          url: BSIDCA_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'ProvisionUsers',
+          contentType: 'SOAP/XML',
+          soapEnvelope: maskSoapEnvelope(soapEnvelope),
+          parameters: { userName, tokenType, description, organization: org }
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// BSIDCA SOAP: Get MobilePASS Activation Code
+app.post('/api/tokens/activation-code', async (req, res) => {
+  const { userName, taskID, organization } = req.body;
+  const org = organization || ORGANIZATION;
+
+  if ((!BSIDCA_EMAIL && !BSIDCA_USER) || !BSIDCA_PASSWORD) {
+    return res.json({
+      success: false,
+      error: 'BSIDCA credentials not configured'
+    });
+  }
+
+  if (!userName || !taskID) {
+    return res.json({
+      success: false,
+      error: 'userName and taskID are required'
+    });
+  }
+
+  // First, authenticate with BSIDCA
+  const authResult = await connectBSIDCA();
+  if (!authResult.success) {
+    return res.json({
+      success: false,
+      error: 'BSIDCA authentication failed',
+      authError: authResult.error,
+      debug: authResult
+    });
+  }
+
+  // Build SOAP envelope for GetMobilePASSProvisioningActivationCode
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetMobilePASSProvisioningActivationCode xmlns="http://www.cryptocard.com/blackshield/">
+      <userName>${userName}</userName>
+      <taskID>${taskID}</taskID>
+      <organization>${org}</organization>
+    </GetMobilePASSProvisioningActivationCode>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/GetMobilePASSProvisioningActivationCode'
+    };
+
+    // Add session cookie if available
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    const response = await fetch(BSIDCA_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    const parsed = parseSoapResponse(responseText, 'GetMobilePASSProvisioningActivationCode');
+
+    const activationCode = parsed.parsed?.GetMobilePASSProvisioningActivationCodeResult;
+
+    res.json({
+      success: response.ok && !!activationCode,
+      status: response.status,
+      authenticated: authResult.cached ? 'cached_session' : 'new_session',
+      activationCode: activationCode,
+      data: parsed,
+      debug: {
+        request: {
+          method: 'POST',
+          url: BSIDCA_URL,
+          headers: maskSensitiveHeaders(headers),
+          soapAction: 'GetMobilePASSProvisioningActivationCode',
+          contentType: 'SOAP/XML',
+          soapEnvelope: maskSoapEnvelope(soapEnvelope),
+          parameters: { userName, taskID, organization: org }
+        },
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'content-type': response.headers.get('content-type')
+          }
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Info endpoint about token provisioning
+app.get('/api/tokens/info', (req, res) => {
+  res.json({
+    message: 'Token provisioning in STA requires the BSIDCA SOAP API',
+    scimApiSupports: ['Create User', 'Read User', 'Update User', 'Delete User'],
+    bsidcaApiSupports: ['ProvisionUsers', 'AssignToken', 'ActivateToken', 'SuspendToken', 'GetMobilePASSProvisioningActivationCode'],
+    validTokenClasses: {
+      list: ['Software', 'Custom', 'Oath', 'SMS', 'Password', 'KT', 'RB', 'ICE', 'GOLD', 'eToken', 'MobilePASS', 'GoogleAuthenticator'],
+      note: 'MobilePASS is for MobilePASS+ app, Software is for generic TOTP tokens, GoogleAuthenticator for Google Authenticator app'
+    },
+    workflow: {
+      step1: 'Create user via SCIM API (working)',
+      step2: 'Provision token via BSIDCA SOAP API (requires operator credentials)',
+      step3: 'User receives activation email or you can get activation code via GetMobilePASSProvisioningActivationCode',
+      important: 'User MUST exist in the organization before provisioning tokens. Empty ProvisionUsersResponse means user does not exist.'
+    },
+    requiredEnvVars: {
+      forScim: ['SCIM_API_Endpoint_Url', 'API_KEY'],
+      forBsidca: ['BSIDCA_Email', 'BSIDCA_Password', 'ORGANIZATION']
+    },
+    documentation: [
+      'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-token/index.html',
+      'https://thalesdocs.com/sta/api/bsidca/bsidca-endpoints/bsidca-mobilepass/index.html'
+    ]
+  });
+});
+
+// Health check for Railway
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Serve frontend
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+
+const { execFile } = require('child_process');
+
+/**
+ * Resolve a username to email address using the SAS users cache
+ * SAS API requires email address for authentication, not just username
+ *
+ * @param {string} identifier - Username or email address
+ * @returns {Promise<{email: string|null, username: string|null, resolved: boolean}>}
+ */
+async function resolveUserIdentifier(identifier) {
+  // If it already looks like an email, use it directly
+  if (identifier.includes('@')) {
+    return { email: identifier, username: null, resolved: true, source: 'email_format' };
+  }
+
+  // Try to find user in cache by username
+  const cachedUsers = sasUsersCache.usersWithDetails || [];
+
+  // Search by username (case-insensitive)
+  const lowerIdentifier = identifier.toLowerCase();
+  let foundUser = cachedUsers.find(u =>
+    (u.username && u.username.toLowerCase() === lowerIdentifier) ||
+    (u.userid && u.userid.toLowerCase() === lowerIdentifier)
+  );
+
+  if (foundUser && foundUser.email) {
+    console.log(`[Resolver] Found email for '${identifier}': ${foundUser.email}`);
+    return { email: foundUser.email, username: identifier, resolved: true, source: 'cache' };
+  }
+
+  // If not in cache, try to fetch user details directly from SAS
+  if (SAS_URL && SAS_USER && SAS_PASSWORD) {
+    console.log(`[Resolver] User '${identifier}' not in cache, fetching from SAS...`);
+    const authResult = await connectSAS();
+    if (authResult.success) {
+      const details = await getSasUserDetails(identifier, authResult.cookie);
+      if (details.email) {
+        console.log(`[Resolver] Found email for '${identifier}' from SAS: ${details.email}`);
+        return { email: details.email, username: identifier, resolved: true, source: 'sas_lookup' };
+      }
+    }
+  }
+
+  // Could not resolve - return original identifier
+  console.log(`[Resolver] Could not resolve '${identifier}' to email, using as-is`);
+  return { email: null, username: identifier, resolved: false, source: 'none' };
+}
+
+/**
+ * SAS: Verify End-User OTP using TestToken SOAP method
+ *
+ * TestToken is the proper BSIDCA method for validating end-user OTP codes.
+ * It tests an OTP against a user's assigned token without establishing an operator session.
+ *
+ * Flow:
+ * 1. Resolve username to email if needed (SAS requires email)
+ * 2. Authenticate as operator (Connect) to establish session
+ * 3. Call TestToken with the end-user's email and OTP
+ *
+ * @param {string} identifier - The end-user's username or email
+ * @param {string} otp - The OTP code from mobilePASS or authenticator app
+ * @returns {Promise<{success: boolean, error?: string, method?: string}>}
+ */
+async function verifyUserMFA(identifier, otp) {
+  // Validate inputs
+  if (!identifier || !otp) {
+    return { success: false, error: 'Username/email and OTP are required' };
+  }
+
+  // Check if SAS is configured
+  if (!SAS_URL) {
+    return { success: false, error: 'SAS endpoint not configured. Set SAS_Endpoint_Url environment variable.' };
+  }
+
+  // Resolve username to email if needed
+  const resolved = await resolveUserIdentifier(identifier);
+  const userEmail = resolved.email || identifier;
+
+  console.log(`[Auth] Authenticating: input='${identifier}', resolved='${userEmail}' (source: ${resolved.source})`);
+
+  // Method 1: Try TestToken with resolved email (proper end-user OTP validation)
+  const testTokenResult = await verifyWithTestToken(userEmail, otp);
+  if (testTokenResult.success) {
+    return { ...testTokenResult, method: 'TestToken', resolvedAs: userEmail };
+  }
+
+  // If we resolved to email and it failed, also try with original identifier
+  if (resolved.resolved && userEmail !== identifier) {
+    console.log(`[Auth] TestToken failed with email, trying original identifier '${identifier}'...`);
+    const testTokenOriginal = await verifyWithTestToken(identifier, otp);
+    if (testTokenOriginal.success) {
+      return { ...testTokenOriginal, method: 'TestToken', resolvedAs: identifier };
+    }
+  }
+
+  // Method 2: Fallback to Connect (if user is also an operator)
+  console.log(`[Auth] TestToken failed, trying Connect fallback with '${userEmail}'...`);
+  const connectResult = await verifyWithConnect(userEmail, otp);
+  if (connectResult.success) {
+    return { ...connectResult, method: 'Connect', resolvedAs: userEmail };
+  }
+
+  // Try Connect with original identifier if different
+  if (resolved.resolved && userEmail !== identifier) {
+    const connectOriginal = await verifyWithConnect(identifier, otp);
+    if (connectOriginal.success) {
+      return { ...connectOriginal, method: 'Connect', resolvedAs: identifier };
+    }
+  }
+
+  // All methods failed
+  return {
+    success: false,
+    error: `Authentication failed. TestToken: ${testTokenResult.error}. Connect: ${connectResult.error}`,
+    methods_tried: ['TestToken', 'Connect'],
+    identifiers_tried: resolved.resolved ? [userEmail, identifier] : [identifier]
+  };
+}
+
+/**
+ * Verify OTP using TestToken SOAP method
+ * This is the proper method for end-user authentication
+ */
+async function verifyWithTestToken(username, otp) {
+  // First, establish operator session
+  const authResult = await connectSAS();
+  if (!authResult.success) {
+    return { success: false, error: `Operator session failed: ${authResult.error}` };
+  }
+
+  // Build SOAP envelope for TestToken
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <TestToken xmlns="http://www.cryptocard.com/blackshield/">
+      <userName>${xmlEscape(username)}</userName>
+      <otp>${xmlEscape(otp)}</otp>
+      <organization>${xmlEscape(SAS_ORGANIZATION)}</organization>
+    </TestToken>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const headers = {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': 'http://www.cryptocard.com/blackshield/TestToken'
+    };
+
+    // Include session cookie from operator authentication
+    if (authResult.cookie) {
+      headers['Cookie'] = authResult.cookie;
+    }
+
+    console.log(`[TestToken] Validating OTP for user: ${username}`);
+
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: headers,
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    console.log('[TestToken] Response:', responseText.substring(0, 500));
+
+    // Parse TestTokenResult - can be boolean or result code
+    // Possible results: true, false, AUTH_SUCCESS, AUTH_FAILURE, TOKEN_NOT_FOUND, etc.
+    const resultMatch = responseText.match(/<TestTokenResult[^>]*>([^<]+)<\/TestTokenResult>/i) ||
+                        responseText.match(/:TestTokenResult[^>]*>([^<]+)<\//i);
+
+    const result = resultMatch ? resultMatch[1].trim() : null;
+
+    if (result === 'true' || result === 'True' || result === 'AUTH_SUCCESS') {
+      console.log(`[TestToken] SUCCESS for user: ${username}`);
+      return { success: true };
+    }
+
+    // Check for specific error messages
+    const errorMatch = responseText.match(/<faultstring[^>]*>([^<]+)<\/faultstring>/i);
+    const errorMsg = errorMatch ? errorMatch[1] : `TestToken returned: ${result || 'empty response'}`;
+
+    console.log(`[TestToken] FAILED for user: ${username}, result: ${result}`);
+    return { success: false, error: errorMsg };
+
+  } catch (err) {
+    console.error(`[TestToken] Error for user ${username}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Verify OTP using Connect SOAP method (fallback for operator accounts)
+ * This method is typically for operator authentication but can work if the user has operator privileges
+ */
+async function verifyWithConnect(username, otp) {
+  const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <Connect xmlns="http://www.cryptocard.com/blackshield/">
+      <OperatorEmail>${xmlEscape(username)}</OperatorEmail>
+      <OTP>${xmlEscape(otp)}</OTP>
+    </Connect>
+  </soap:Body>
+</soap:Envelope>`;
+
+  try {
+    const response = await fetch(SAS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://www.cryptocard.com/blackshield/Connect'
+      },
+      body: soapEnvelope
+    });
+
+    const responseText = await response.text();
+    console.log('[Connect] Response:', responseText.substring(0, 500));
+
+    // Extract ConnectResult
+    const match = responseText.match(/<ConnectResult[^>]*>([^<]+)<\/ConnectResult>/i) ||
+                  responseText.match(/:ConnectResult[^>]*>([^<]+)<\//i);
+    const result = match ? match[1].trim() : null;
+
+    if (result === 'AUTH_SUCCESS') {
+      console.log(`[Connect] SUCCESS for user: ${username}`);
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: `Connect returned: ${result || 'unknown'}`
+    };
+
+  } catch (err) {
+    console.error(`[Connect] Error for user ${username}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// Endpoint: Verify User MFA
+// POST /api/auth/verify
+// Body: { "username": "user@example.com", "otp": "123456" }
+// Response: { "success": true, "message": "...", "username": "...", "method": "TestToken|Connect" }
+// Apply rate limiting to prevent brute force attacks
+app.post('/api/auth/verify', authRateLimiter, async (req, res) => {
+  const { username, otp } = req.body;
+
+  // Validate required fields
+  if (!username || !otp) {
+    return res.status(400).json({
+      success: false,
+      error: 'Username and OTP required',
+      usage: {
+        endpoint: 'POST /api/auth/verify',
+        body: { username: 'user@example.com or userId', otp: '6-digit OTP from mobilePASS/authenticator' }
+      }
+    });
+  }
+
+  // Validate username format (must be valid email OR valid username)
+  const isEmail = InputValidator.isValidEmail(username);
+  const isUsername = InputValidator.isValidUsername(username);
+
+  if (!isEmail && !isUsername) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid username format. Must be a valid email address or username (alphanumeric, dots, underscores, hyphens, 1-64 chars)',
+      provided: username
+    });
+  }
+
+  // Validate OTP format (exactly 6 digits for strict validation)
+  if (!InputValidator.isValidOtp(otp)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid OTP format. Must be exactly 6 digits.',
+      provided: otp.length + ' characters'
+    });
+  }
+
+  console.log(`[Auth] Verifying MFA for user: ${username}`);
+
+  // Verify against SAS using TestToken (primary) or Connect (fallback)
+  const result = await verifyUserMFA(username, otp);
+
+  // Log the authentication attempt
+  logAudit(username, 'MFA_VERIFY', `Method: ${result.method || 'N/A'}, Success: ${result.success}`, result.success);
+
+  if (result.success) {
+    // Generate JWT token for session management
+    const token = generateJWT({
+      sub: username,
+      resolvedAs: result.resolvedAs || username,
+      authMethod: result.method
+    });
+
+    res.json({
+      success: true,
+      message: 'Authentication successful',
+      username: username,
+      resolvedAs: result.resolvedAs || username,
+      method: result.method,
+      token: token,
+      expiresIn: JWT_EXPIRY,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(401).json({
+      success: false,
+      error: result.error,
+      username: username,
+      identifiers_tried: result.identifiers_tried || [username],
+      methods_tried: result.methods_tried || [result.method || 'unknown'],
+      hint: 'Ensure user has a valid token assigned in SAS. You can use either username or email address.'
+    });
+  }
+});
+
+// Endpoint: Refresh JWT Token
+// POST /api/auth/refresh
+// Headers: Authorization: Bearer <current-token>
+// Response: { "success": true, "token": "...", "expiresIn": 3600 }
+app.post('/api/auth/refresh', verifyJwtMiddleware, (req, res) => {
+  // User is already authenticated via verifyJwtMiddleware
+  // Generate a new token with the same user info
+  const newToken = generateJWT({
+    sub: req.user.sub,
+    resolvedAs: req.user.resolvedAs,
+    authMethod: req.user.authMethod
+  });
+
+  res.json({
+    success: true,
+    message: 'Token refreshed successfully',
+    token: newToken,
+    expiresIn: JWT_EXPIRY,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Endpoint: Connect to Network Target (SPA)
+// Protected by JWT authentication
+app.post('/api/network/connect', verifyJwtMiddleware, async (req, res) => {
+  const { targetIp, port = 22, protocol = 'tcp' } = req.body;
+
+  // Get authenticated user from JWT token
+  const user = req.user.sub;
+
+  // Validate required fields
+  if (!targetIp) {
+    return res.status(400).json({
+      success: false,
+      error: 'targetIp is required'
+    });
+  }
+
+  // Validate targetIp format
+  if (!InputValidator.isValidIpAddress(targetIp)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid target IP address format. Must be a valid IPv4 address.',
+      provided: targetIp
+    });
+  }
+
+  // Validate port
+  if (!InputValidator.isValidPort(port)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid port number. Must be between 1 and 65535.',
+      provided: port
+    });
+  }
+
+  // Validate protocol
+  const protocolValue = protocol.toLowerCase();
+  if (!InputValidator.isValidProtocol(protocolValue)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid protocol. Must be "tcp" or "udp".',
+      provided: protocol
+    });
+  }
+
+  // --- ZERO NETWORKS POLICY ENFORCEMENT ---
+
+  // 1. Resolve Asset
+  const assets = readJson(ASSETS_FILE);
+  const policies = readJson(POLICIES_FILE);
+
+  // Find policies that might apply (User match or Wildcard)
+  const userPolicies = policies.filter(p => p.user === '*' || p.user === user);
+
+  let accessAllowed = false;
+  let policyName = 'Default Deny';
+
+  // Check if any policy allows this IP:Port
+  for (const p of userPolicies) {
+    const asset = assets.find(a => a.id === p.assetId);
+    if (asset && asset.ip === targetIp && p.port === parseInt(port)) {
+      if (p.action === 'allow') {
+        accessAllowed = true;
+        policyName = `Policy:${p.id} (User: ${p.user} -> ${asset.name})`;
+        break;
+      }
+    }
+  }
+
+  // 2. Audit Log (Learning Mode)
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  // Validate clientIp is a valid IPv4 address (defensive programming)
+  let validatedClientIp = clientIp;
+  if (!InputValidator.isValidIpAddress(clientIp)) {
+    console.warn(`Invalid client IP detected: ${clientIp}, using fallback`);
+    validatedClientIp = '127.0.0.1'; // Fallback to localhost if invalid
+  }
+
+  logAudit(user, 'CONNECT_ATTEMPT', `Target: ${targetIp}:${port} | Client: ${validatedClientIp} | Result: ${accessAllowed ? 'ALLOWED' : 'BLOCKED'} via ${policyName} `, accessAllowed);
+
+  if (!accessAllowed) {
+    console.log(`Blocked access for ${user} to ${targetIp}:${port} (No Policy)`);
+    return res.status(403).json({ success: false, error: 'Access Denied by Identity Segmentation Policy' });
+  }
+
+  console.log(`Sending SPA packet for ${validatedClientIp} to access ${targetIp}:${port}/${protocolValue} (Allowed by ${policyName})`);
+
+  // Execute fwknop using execFile (safer - no shell injection)
+  // Arguments are passed as array, preventing command injection
+  const args = [
+    '-n', targetIp,
+    '-a', validatedClientIp,
+    '--Access', `${protocolValue}/${port}`
+  ];
+
+  execFile('fwknop', args, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`fwknop error: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send SPA packet',
+        details: stderr
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Network access granted',
+      details: {
+        target: targetIp,
+        port: port,
+        clientIp: validatedClientIp,
+        duration: '30s' // Default fwknop duration
+      }
+    });
+  });
+});
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`SCIM API: ${SCIM_API_URL || 'NOT SET'}`);
+  console.log(`BSIDCA: ${BSIDCA_URL}`);
+  console.log(`SAS Endpoint: ${SAS_URL || 'NOT SET'}`);
+});
