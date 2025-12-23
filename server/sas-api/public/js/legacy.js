@@ -418,117 +418,6 @@
 
     // --- ZERO NETWORKS FRONTEND LOGIC ---
 
-    // Assets
-    async function loadAssets() {
-      const list = document.getElementById('assetList');
-      const policySelect = document.getElementById('policyAssetId');
-
-      try {
-        const res = await fetch('/api/assets');
-        const data = await res.json();
-
-        // Render List
-        if (data.data && data.data.length > 0) {
-          list.innerHTML = data.data.map(a => `
-            <div class="user-item">
-              <div class="user-info">
-                <div class="user-name">${a.name}</div>
-                <div class="user-id">${a.ip} (${a.os})</div>
-              </div>
-              <div class="user-actions">
-                <button class="danger" onclick="deleteAsset('${a.id}')">${t('delete')}</button>
-              </div>
-            </div>
-          `).join('');
-
-          // Populate Policy Dropdown
-          policySelect.innerHTML = data.data.map(a => `<option value="${a.id}">${a.name} (${a.ip})</option>`).join('');
-        } else {
-          list.innerHTML = `<div class="loading">${t('noAssets')}</div>`;
-          policySelect.innerHTML = '';
-        }
-      } catch (e) {
-        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
-      }
-    }
-
-    document.getElementById('addAssetForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const name = document.getElementById('assetName').value;
-      const ip = document.getElementById('assetIp').value;
-
-      try {
-        await fetch('/api/assets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, ip })
-        });
-        e.target.reset();
-        loadAssets();
-      } catch (e) { alert(e.message); }
-    };
-
-    async function deleteAsset(id) {
-      if (!confirm(t('deleteConfirm'))) return;
-      await fetch('/api/assets/' + id, { method: 'DELETE' });
-      loadAssets();
-      loadPolicies(); // Refresh policies as some might reference deleted asset
-    }
-
-    // Policies
-    async function loadPolicies() {
-      const list = document.getElementById('policyList');
-      try {
-        const res = await fetch('/api/policies');
-        const data = await res.json();
-
-        if (data.data && data.data.length > 0) {
-          // Enh: efficient lookup for asset names would be better, but this is fine for prototype
-          // We can fetch assets again or use a global cache if needed.
-          // For now, raw ID display or simple match if we have asset list in memory? 
-          // Let's just display data raw-ish for speed.
-          list.innerHTML = data.data.map(p => `
-             <div class="user-item">
-              <div class="user-info">
-                <div class="user-name">${p.user} -> Asset:${p.assetId}</div>
-                <div class="user-id">Port: ${p.port} (${p.action})</div>
-              </div>
-              <div class="user-actions">
-                <button class="danger" onclick="deletePolicy('${p.id}')">${t('delete')}</button>
-              </div>
-            </div>
-          `).join('');
-        } else {
-          list.innerHTML = `<div class="loading">${t('noPolicies')}</div>`;
-        }
-      } catch (e) {
-        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
-      }
-    }
-
-    document.getElementById('addPolicyForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const user = document.getElementById('policyUser').value;
-      const assetId = document.getElementById('policyAssetId').value;
-      const port = document.getElementById('policyPort').value;
-
-      try {
-        await fetch('/api/policies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user, assetId, port })
-        });
-        e.target.reset();
-        loadPolicies();
-      } catch (e) { alert(e.message); }
-    };
-
-    async function deletePolicy(id) {
-      if (!confirm(t('deleteConfirm'))) return;
-      await fetch('/api/policies/' + id, { method: 'DELETE' });
-      loadPolicies();
-    }
-
     // Audit Logs
     async function loadAudit() {
       const list = document.getElementById('auditList');
@@ -559,7 +448,7 @@
     // Initialize translations first, then check API status
     initI18n().then(() => {
       if (typeof HomeView !== 'undefined') HomeView.init();
-      loadAssets();
-      loadPolicies();
+      if (typeof AssetsView !== 'undefined') AssetsView.init();
+      if (typeof PoliciesView !== 'undefined') PoliciesView.init();
       loadAudit();
     });
