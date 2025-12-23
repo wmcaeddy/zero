@@ -122,24 +122,6 @@
       }
     }
 
-    async function checkStatus() {
-      try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        if (data.configured) {
-          statusEl.className = 'status ok';
-          statusEl.textContent = t('statusOk');
-        } else {
-          statusEl.className = 'status error';
-          statusEl.textContent = t('statusNotConfigured');
-        }
-        log(data);
-      } catch (e) {
-        statusEl.className = 'status error';
-        statusEl.textContent = t('statusError') + e.message;
-      }
-    }
-
     async function loadUsers() {
       const list = document.getElementById('userList');
       list.innerHTML = '<div class="loading">' + t('loading') + '</div>';
@@ -434,81 +416,6 @@
 
     document.getElementById('refreshUsers').onclick = loadUsers;
 
-    // Zero Access Logic
-    let verifiedUser = null;
-
-    document.getElementById('verifyIdentityForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const user = document.getElementById('verifyUser').value;
-      const otp = document.getElementById('verifyOtp').value;
-      const btn = e.target.querySelector('button');
-
-      btn.disabled = true;
-      try {
-        const res = await fetch('/api/auth/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: user, otp })
-        });
-        const data = await res.json();
-        log(data);
-
-        if (data.success) {
-          verifiedUser = user;
-          document.getElementById('stepVerify').style.display = 'none';
-          document.getElementById('stepConnect').style.display = 'block';
-        } else {
-          alert('Verification Failed: ' + (data.error || 'Unknown error'));
-        }
-      } catch (e) {
-        alert('Error: ' + e.message);
-      }
-      btn.disabled = false;
-    };
-
-    document.getElementById('connectTargetForm').onsubmit = async (e) => {
-      e.preventDefault();
-      if (!verifiedUser) {
-        alert(t('verifyFirst'));
-        return;
-      }
-
-      const targetIp = document.getElementById('targetIp').value;
-      const targetPort = document.getElementById('targetPort').value;
-      const btn = e.target.querySelector('button');
-
-      btn.disabled = true;
-      try {
-        const res = await fetch('/api/network/connect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetIp, port: targetPort })
-        });
-        const data = await res.json();
-        log(data);
-
-        if (data.success) {
-          alert(t('accessGranted'));
-        } else {
-          alert('Connection Failed: ' + (data.error || 'Unknown error'));
-        }
-      } catch (e) {
-        alert('Error: ' + e.message);
-      }
-      btn.disabled = false;
-    };
-
-    // Tokens section commented out
-    // document.getElementById('refreshTokens').onclick = async () => {
-    //   try {
-    //     const res = await fetch('/api/tokens');
-    //     const data = await res.json();
-    //     log(data);
-    //   } catch (e) {
-    //     alert('Error: ' + e.message);
-    //   }
-    // };
-
     // --- ZERO NETWORKS FRONTEND LOGIC ---
 
     // Assets
@@ -651,7 +558,7 @@
 
     // Initialize translations first, then check API status
     initI18n().then(() => {
-      checkStatus();
+      if (typeof HomeView !== 'undefined') HomeView.init();
       loadAssets();
       loadPolicies();
       loadAudit();

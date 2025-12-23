@@ -59,6 +59,10 @@
       color: #333;
     }
 
+    .card-zero-access {
+      border-top: 4px solid #ff9800;
+    }
+
     .badge {
       display: inline-block;
       padding: 3px 8px;
