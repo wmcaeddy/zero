@@ -128,38 +128,11 @@
 
     // --- ZERO NETWORKS FRONTEND LOGIC ---
 
-    // Audit Logs
-    async function loadAudit() {
-      const list = document.getElementById('auditList');
-      try {
-        const res = await fetch('/api/audit');
-        const data = await res.json();
-
-        if (data.data && data.data.length > 0) {
-          list.innerHTML = data.data.map(l => `
-             <div class="user-item" style="border-left: 4px solid ${l.success ? '#4caf50' : '#f44336'}">
-              <div class="user-info">
-                <div class="user-name">${l.user} [${l.action}]</div>
-                <div class="user-id">${new Date(l.timestamp).toLocaleString()} - ${l.details || ''}</div>
-              </div>
-            </div>
-          `).join('');
-        } else {
-          list.innerHTML = `<div class="loading">${t('noLogs')}</div>`;
-        }
-      } catch (e) {
-        list.innerHTML = `<div class="loading">${t('statusError')} ${e.message}</div>`;
-      }
-    }
-
-    // Poll logs every 5s
-    setInterval(loadAudit, 5000);
-
     // Initialize translations first, then check API status
     initI18n().then(() => {
       if (typeof HomeView !== 'undefined') HomeView.init();
       if (typeof AssetsView !== 'undefined') AssetsView.init();
       if (typeof PoliciesView !== 'undefined') PoliciesView.init();
       if (typeof UsersView !== 'undefined') UsersView.init();
-      loadAudit();
+      if (typeof AuditView !== 'undefined') AuditView.init();
     });
