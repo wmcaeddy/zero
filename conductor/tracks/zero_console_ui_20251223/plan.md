@@ -26,9 +26,9 @@ This phase moves functionality piece-by-piece into the new layout.
 - [x] Task: Refactor "User Management" (SCIM, SAS, Provisioning). 1e8c73a
     - [x] Subtask: Create `public/js/views/users.js`.
     - [x] Subtask: Consolidate SCIM, SAS, and Token Provisioning into a unified "Users" section with tabs or sub-views.
-- [ ] Task: Refactor "Audit Logs".
-    - [ ] Subtask: Create `public/js/views/audit.js`.
-    - [ ] Subtask: Implement the audit log viewer.
+- [x] Task: Refactor "Audit Logs". 36c5950
+    - [x] Subtask: Create `public/js/views/audit.js`.
+    - [x] Subtask: Implement the audit log viewer.
 - [ ] Task: Conductor - User Manual Verification 'Component Migration & Refactoring' (Protocol in workflow.md)
 
 ## Phase 3: Visual Polish & Responsiveness
